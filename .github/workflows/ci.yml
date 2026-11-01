@@ -76,7 +76,7 @@ jobs:
           changed = check_output(
               [
                   'git', 'diff', '--name-only', '--no-renames', base, environ['GITHUB_SHA'],
-                  '--', 'src/', 'setup.py', 'setup.cfg', 'pyproject.toml', 'MANIFEST.in', 'scripts/',
+                  '--', 'src/', 'setup.py', 'setup.cfg', 'pyproject.toml', 'MANIFEST.in', 'README.setup.md',
               ],
               text=True,
           ).strip()
@@ -171,41 +171,19 @@ jobs:
   test:
     name: Test Python ${{ matrix.python }}
     needs: changes
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         python: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+        include:
+          - python: '3.9'
+            os: ubuntu-24.04
     env:
-      PROJECT: DefStream
-      DEFSTREAM_RABBITMQ_TESTS: '1'
-      DEFSTREAM_REDIS_TESTS: '1'
-    services:
-      rabbitmq:
-        image: rabbitmq:4.1
-        ports:
-          - 5672:5672
-        env:
-          RABBITMQ_DEFAULT_USER: guest
-          RABBITMQ_DEFAULT_PASS: guest
-          RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: '-rabbit loopback_users []'
-        options: >-
-          --health-cmd "rabbitmq-diagnostics -q ping"
-          --health-interval 10s
-          --health-timeout 10s
-          --health-retries 12
-      redis:
-        image: redis:7.4
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
+      PROJECT: csvd2c
     steps:
-      - name: Check out core
+      - name: Check out csvd2c
         uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
@@ -230,7 +208,7 @@ jobs:
           from re import fullmatch
 
           project = environ['PROJECT']
-          if project != 'DefStream':
+          if project != 'csvd2c':
               raise ValueError(f'Unexpected project: {project}')
           if environ['RELEASE_BUILD'] != 'true':
               print('Test-only build: using the existing Git-derived development version.')
@@ -257,13 +235,13 @@ jobs:
           mkdir -p dist
           if [ "$RELEASE_BUILD" = "true" ]; then
             if [ "$NEW_VERSION" = "true" ]; then
-              SETUPTOOLS_SCM_PRETEND_VERSION="$RELEASE_VERSION" python scripts/build_distributions.py
+              SETUPTOOLS_SCM_PRETEND_VERSION="$RELEASE_VERSION" python -m build --no-isolation --sdist --wheel
             else
-              SETUPTOOLS_SCM_PRETEND_VERSION="$RELEASE_VERSION" python scripts/build_distributions.py --wheel
+              SETUPTOOLS_SCM_PRETEND_VERSION="$RELEASE_VERSION" python -m build --no-isolation --wheel
             fi
             python -m wheel tags --build "$WHEEL_BUILD" --remove dist/*.whl
           else
-            python scripts/build_distributions.py
+            python -m build --no-isolation --sdist --wheel
           fi
           python -m twine check --strict dist/*
 
@@ -294,11 +272,6 @@ jobs:
                   path.write_bytes(buffer.getvalue())
           PY
 
-      - name: Verify optional client installations
-        run: python scripts/check_distributions.py --editable
-      - name: Test release preparation
-        run: python -m unittest discover -s scripts/tests -t scripts -p 'test_*.py'
-
       - name: Install built wheels into a clean environment
         run: |
           python -m venv "$RUNNER_TEMP/installed"
@@ -310,14 +283,6 @@ jobs:
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/installed/bin/python" -m unittest discover \
             -s "$GITHUB_WORKSPACE/tests" -p 'test_*.py' -v
-
-      - name: Set up Node for core UI tests
-        uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-
-      - name: Test core UI
-        run: node --test tests/test_status_ui.cjs
 
       - name: Preserve verified release distributions
         if: github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.release == 'true' && matrix.python == '3.13'
@@ -365,11 +330,64 @@ jobs:
       - name: Check release status
         id: release
         env:
-          PROJECT: ${{ github.event.repository.name }}
           RELEASE_VERSION: ${{ needs.changes.outputs.version }}
           WHEEL_BUILD: ${{ needs.changes.outputs.build }}
           NEW_VERSION: ${{ needs.changes.outputs.new_version }}
-        run: python release-source/scripts/prepare_upload.py
+        run: |
+          python - <<'PY'
+          from hashlib import sha256
+          from json import load
+          from os import environ
+          from pathlib import Path
+          from shutil import copyfile
+          from urllib.error import HTTPError
+          from urllib.request import urlopen
+          from zipfile import ZipFile
+          from email.parser import BytesParser
+
+          version = environ['RELEASE_VERSION']
+          build = environ['WHEEL_BUILD']
+          files = sorted(Path('dist').glob('*'))
+          wheels = [path for path in files if path.suffix == '.whl']
+          archives = [path for path in files if path.name.endswith('.tar.gz')]
+          if len(wheels) != 1 or len(archives) != (1 if environ['NEW_VERSION'] == 'true' else 0):
+              raise ValueError('Expected one csvd2c wheel and an sdist only for new versions')
+          if len(files) != len(wheels) + len(archives):
+              raise ValueError('Unexpected release artifact')
+          wheel = wheels[0]
+          if wheel.name != f'csvd2c-{version}-{build}-py3-none-any.whl':
+              raise ValueError(f'Unexpected wheel filename: {wheel.name}')
+          with ZipFile(wheel) as archive:
+              metadata = archive.read(f'csvd2c-{version}.dist-info/METADATA')
+          message = BytesParser().parsebytes(metadata)
+          if message['Name'] != 'csvd2c' or message['Version'] != version:
+              raise ValueError('Wheel metadata does not match the planned csvd2c release')
+          if archives and archives[0].name != f'csvd2c-{version}.tar.gz':
+              raise ValueError('Source archive does not match the planned release')
+          try:
+              with urlopen(f'https://pypi.org/pypi/csvd2c/{version}/json', timeout=30) as response:
+                  published = load(response)
+          except HTTPError as error:
+              if error.code != 404:
+                  raise
+              existing = {}
+          else:
+              existing = {item['filename']: item['digests']['sha256'] for item in published['urls']}
+          upload = Path('upload')
+          upload.mkdir()
+          pending = []
+          for path in files:
+              if path.name in existing:
+                  if sha256(path.read_bytes()).hexdigest() != existing[path.name]:
+                      raise ValueError(f'PyPI file differs; refusing to overwrite {path.name}')
+                  print(f'Already published unchanged: {path.name}')
+              else:
+                  copyfile(path, upload / path.name)
+                  pending.append(path.name)
+          with Path(environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as output:
+              output.write(f'version={version}\npublish={str(bool(pending)).lower()}\n')
+          print(f'Pending uploads: {pending}')
+          PY
 
       - name: Record verified release tag
         env:
@@ -406,12 +424,7 @@ jobs:
             echo "::error::Configure PYPI_API_TOKEN in the pypi environment or repository Actions secrets."
             exit 1
           fi
-          if compgen -G "upload/implementations/*" > /dev/null; then
-            python -m twine upload --non-interactive upload/implementations/*
-          fi
-          if compgen -G "upload/core/*" > /dev/null; then
-            python -m twine upload --non-interactive upload/core/*
-          fi
+          python -m twine upload --non-interactive upload/*
 
       - name: Publish GitHub Release with verified distributions
         env:
