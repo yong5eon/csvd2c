@@ -12,12 +12,15 @@
 | 병합 대상 브랜치 | 미확정 |
 | 요구사항 | [요구사항 명세](./REQUIREMENTS.md) |
 | 계획 | [작업 계획](./PLAN.md) |
-| 작업 기록 | [종합 기록](./TASKS.md) · [최신 단계별 기록](./tasks/1793634865397.md) |
+| 구현 기록 | [종합 기록](./IMPLEMENTS.md) · [API 및 테스트](./implements/1793635017848.md) · [사용 문서](./implements/1793635192381.md) |
+| 작업 기록 | [종합 기록](./TASKS.md) · [최신 단계별 기록](./tasks/1793635192382.md) |
+| 변경 로그 | [CHANGELOG.md](./CHANGELOG.md) |
 
-## 현재 구현과 요청의 차이
+## 구현 현황
 
-- [`src/CSV.py`](../../../src/CSV.py)의 `CSV` 생성자는 `delimiter`와 `strict`를 받지만 `escapechar`는 받지 않으며, `open()`도 `csv.reader`에 해당 옵션을 전달하지 않습니다.
-- 한국어·영어 [사용 매뉴얼](../../../docs/README.md)과 [영어 사용 매뉴얼](../../../docs/README.en.md)은 TSV 구분자와 `strict` 파싱을 안내하지만 `escapechar` 설정은 안내하지 않습니다.
+- [`src/CSV.py`](../../../src/CSV.py)의 `CSV` 생성자는 선택적 `escapechar`를 받고, 이를 `open()`이 생성하는 표준 `csv.reader`에 전달합니다. 기본값은 `None`입니다.
+- [한국어 사용 매뉴얼](../../../docs/README.md)과 [영어 사용 매뉴얼](../../../docs/README.en.md)에 설정과 예제를 추가했습니다.
+- [CSV 테스트](../../../tests/test_csv.py)에서 escape 입력의 표준 파서 결과, 읽기 모드, 기본 동작 및 Validator 순서를 확인합니다.
 
 ## 원본 이슈 본문
 

@@ -11,13 +11,13 @@
 
 ## 수행 순서
 
-1. **`CSV` 생성자와 reader 연결**
+1. **`CSV` 생성자와 reader 연결** — 완료
    - `src/CSV.py` 생성자에 keyword-only `escapechar: Optional[str] = None`을 추가하고 인스턴스 설정으로 보관합니다.
    - `open()`의 `csv.reader` 생성에 해당 설정을 전달합니다.
    - `delimiter`, `strict`, 기본 `doublequote`, 파일 읽기 모드 및 예외 전파 동작은 유지합니다.
    - 선행 조건: 없음.
 
-2. **회귀·기능 테스트 추가**
+2. **회귀·기능 테스트 추가** — 완료
    - `tests/test_csv.py`에 이슈의 합성 TSV를 `strict=True`와 backslash `escapechar`로 읽어 기대 필드 값을 확인하는 테스트를 추가합니다.
    - `rb`, `r`, `rt` 각각에서 동일 설정이 적용되는지 검사합니다.
    - 이스케이프된 구분자·backslash 및 인용된 다중 물리행 입력의 결과를 같은 설정의 표준 `csv.reader`와 비교합니다.
@@ -25,17 +25,17 @@
    - 잘못된 `escapechar` 설정이 표준 파서 오류로 드러나며 숨겨지지 않는지 검사합니다.
    - 선행 조건: 1단계.
 
-3. **한국어·영어 사용 문서 갱신**
+3. **한국어·영어 사용 문서 갱신** — 완료
    - `docs/README.md`와 `docs/README.en.md`의 읽기 설정 설명에 `escapechar`와 기본값 `None`을 추가합니다.
    - 두 문서에 `CSV(delimiter="\t", escapechar="\\", strict=True)` 형태의 실제 동작과 일치하는 사용 예시를 제공합니다.
    - 기본 동작, `strict=True` 및 Python 표준 파서 오류 전파에 대한 기존 설명과 모순이 없는지 확인합니다.
    - 선행 조건: 1단계의 API 형태 확정.
 
-4. **인수 기준 검증 및 변경 검토**
-   - 우선 `python -m unittest discover -s tests -p "test_csv.py" -v`로 CSV 기능 테스트를 실행합니다.
-   - 이어 `python -m unittest discover -s tests -p "test_*.py" -v`로 전체 회귀 테스트를 실행합니다.
-   - 이슈 합성 입력의 필드 값, 세 읽기 모드, 표준 `csv.reader` 결과 비교, 기본값·Validator 순서 및 오류 전파를 요구사항의 인수 기준에 대조합니다.
-   - 한국어·영어 문서의 옵션·예시 일치, 상대 링크, `git diff --check` 및 변경 범위를 확인합니다.
+4. **인수 기준 검증 및 변경 검토** — 완료
+   - Python 3.14.5에서 `test_csv.py`의 42개 테스트를 실행했습니다.
+   - 격리된 Python 가상 환경에서 `test_*.py` 전체 113개 테스트를 실행했습니다.
+   - 이슈 합성 입력의 필드 값, 세 읽기 모드, 표준 `csv.reader` 결과 비교, 기본값·Validator 순서 및 오류 전파를 확인했습니다.
+   - 한국어·영어 문서의 옵션·예시 일치, 상대 링크, `git diff --check` 및 변경 범위를 확인했습니다.
    - 선행 조건: 1~3단계.
 
 ## 인수 기준별 검증
@@ -55,3 +55,9 @@
 - 별도 CSV 전처리·복구 로직, `strict=False` 우회 및 새로운 reader 옵션 추가
 - 원본 데이터 전체 스캔, 운영 적재, 릴리즈·배포
 - 병합 대상 브랜치가 확인되지 않은 상태에서의 병합
+
+## 실행 결과
+
+- 기능과 회귀 테스트: `test_csv.py` 42개 통과, 전체 `test_*.py` 113개 통과
+- 별도 전처리 없이 Python 표준 `csv.reader`로 설정이 전달되는 것을 확인
+- 일반 전역 Python 환경에서는 테스트 샘플 하위 프로세스의 인코딩 초기화 문제가 발생했으나, 격리된 가상 환경에서 전체 테스트를 다시 실행해 통과를 확인

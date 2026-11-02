@@ -40,7 +40,22 @@ flowchart LR
 - Dictionary `cols` validates only named columns and requires a prior `header()` call. Missing or duplicate selected names are errors. Tuple `cols` validates only the specified prefix.
 - Row validation runs before column validation. Header/record column count equality is not enforced automatically; define structural rules in row Patterns. Missing selected record columns are errors.
 - `rows()` selects validators and header mapping when called. Changing the header, closing the context, or reopening the file invalidates existing generators.
-- Use `delimiter="\t"` for TSV. The default delimiter is comma, with `strict=True` CSV parsing.
+- Use `delimiter="\t"` for TSV. The default delimiter is comma, with `strict=True` CSV parsing. `escapechar` defaults to `None`; set `escapechar="\\"` to read input such as quoted fields containing backslash-escaped quotes. Parsing and configuration errors follow Python's standard `csv.reader`.
+
+For example, if the first record in `input.tsv` is a header and the next record is `1<TAB>"Acme \"quoted\" name"`, this configuration reads the data row as `['1', 'Acme "quoted" name']`:
+
+```python
+from csvd2c import CSV
+
+with CSV(
+  delimiter="\t",
+  escapechar="\\",
+  strict=True,
+).open("input.tsv") as data:
+  data.header()
+  print(data.row())
+```
+
 - Decoding, parsing, and validation errors propagate. Consumed records are not automatically retried, and errors are not automatically recovered.
 - `surrogateescape` preserves undecodable bytes but does not repair them. Validate these values before sending them to a database. Already stored `�` requires separate validation.
 - Input is not loaded in full, but oversized records can increase memory usage. Do not indiscriminately increase the CSV parser's field size limit.

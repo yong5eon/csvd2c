@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 
-from csv import Error
+from csv import (
+	Error,
+	reader as csv_reader,
+)
 from io import (
 	BufferedReader,
 	RawIOBase,
+	StringIO,
 )
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -110,6 +114,79 @@ class CSVTests(TestCase):
 					csv.close()
 				with self.assertRaises(RuntimeError):
 					csv.row()
+		return
+
+	def test_escapechar_matches_standard_reader_in_all_read_modes(self) -> None:
+		source: str = (
+			'id\tvalue\n'
+			'1\t"Acme \\"quoted\\" name"\n'
+			'2\tleft\\\tright\n'
+			'3\tback\\\\slash\n'
+			'4\t"line one\nline two"\n'
+		)
+		self.path.write_bytes(source.encode('utf-8'))
+		expected: List[List[str]] = list(
+			csv_reader(
+				StringIO(source, newline=''),
+				delimiter='\t',
+				escapechar='\\',
+				strict=True,
+			)
+		)
+		self.assertEqual(
+			expected,
+			[
+				['id', 'value'],
+				['1', 'Acme "quoted" name'],
+				['2', 'left\tright'],
+				['3', 'back\\slash'],
+				['4', 'line one\nline two'],
+			],
+		)
+		for mode in (
+			'rb',
+			'r',
+			'rt',
+		):
+			with self.subTest(mode=mode):
+				csv = CSV(
+					delimiter='\t',
+					escapechar='\\',
+					strict=True,
+				)
+				self.assertEqual(csv.escapechar, '\\')
+				with csv.open(str(self.path), mode):
+					self.assertEqual(csv.header(), expected[0])
+					self.assertEqual(list(csv.rows()), expected[1:])
+		return
+
+	def test_escapechar_preserves_row_and_column_validation_order(self) -> None:
+		self.path.write_bytes(b'1\t" Acme \\"quoted\\" "\n')
+		csv = CSV(
+			delimiter='\t',
+			escapechar='\\',
+			strict=True,
+			row=RowValidator(Reverse()),
+			cols=(ColumnValidator(Strip()),),
+		)
+		with csv.open(str(self.path)):
+			self.assertEqual(csv.row(), ['Acme "quoted"', '1'])
+		return
+
+	def test_escapechar_defaults_to_none_and_preserves_doublequote(self) -> None:
+		self.path.write_bytes(b'id,name\n1,"Acme ""quoted"" name"\n')
+		csv = CSV()
+		self.assertIsNone(csv.escapechar)
+		with csv.open(str(self.path)):
+			self.assertEqual(csv.header(), ['id', 'name'])
+			self.assertEqual(csv.row(), ['1', 'Acme "quoted" name'])
+		return
+
+	def test_invalid_escapechar_propagates_reader_error(self) -> None:
+		csv = CSV(escapechar='')
+		with self.assertRaises(TypeError):
+			with csv.open(str(self.path)):
+				self.fail('Invalid escapechar must be rejected')
 		return
 
 	def test_rejected_modes_do_not_modify_file(self) -> None:
