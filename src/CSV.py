@@ -38,6 +38,7 @@ class CSV(object):
 		errors: str = 'strict',
 		newline: str = '',
 		delimiter: str = ',',
+		escapechar: Optional[str] = None,
 		strict: bool = True,
 		row: Optional[RowValidator] = None,
 		cols: Optional[
@@ -51,6 +52,7 @@ class CSV(object):
 		self.errors = errors
 		self.newline = newline
 		self.delimiter = delimiter
+		self.escapechar = escapechar
 		self.strict = strict
 		self.check_validators(row, cols)
 		self.row_validator = row
@@ -103,6 +105,7 @@ class CSV(object):
 			self.reader = reader(
 				text,
 				delimiter=self.delimiter,
+				escapechar=self.escapechar,
 				strict=self.strict,
 			)
 			self.header_data = None
