@@ -12,8 +12,8 @@
 | 병합 대상 브랜치 | 미확정 |
 | 요구사항 | [요구사항 명세](./REQUIREMENTS.md) |
 | 계획 | [작업 계획](./PLAN.md) |
-| 구현 기록 | [종합 기록](./IMPLEMENTS.md) · [API 및 테스트](./implements/1793635017848.md) · [사용 문서](./implements/1793635192381.md) |
-| 작업 기록 | [종합 기록](./TASKS.md) · [최신 단계별 기록](./tasks/1793635192382.md) |
+| 구현 기록 | [종합 기록](./IMPLEMENTS.md) · [API 및 테스트](./implements/1793635017848.md) · [사용 문서](./implements/1793635192381.md) · [Python 3.9·3.10 테스트 수정](./implements/1793635945903.md) |
+| 작업 기록 | [종합 기록](./TASKS.md) · [최신 단계별 기록](./tasks/1793635945904.md) |
 | 변경 로그 | [CHANGELOG.md](./CHANGELOG.md) |
 
 ## 구현 현황

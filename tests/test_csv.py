@@ -183,7 +183,7 @@ class CSVTests(TestCase):
 		return
 
 	def test_invalid_escapechar_propagates_reader_error(self) -> None:
-		csv = CSV(escapechar='')
+		csv = CSV(escapechar='xx')
 		with self.assertRaises(TypeError):
 			with csv.open(str(self.path)):
 				self.fail('Invalid escapechar must be rejected')
