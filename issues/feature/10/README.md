@@ -12,7 +12,8 @@
 | 병합 대상 브랜치 | `master` |
 | 관련 이슈 | [#9](https://github.com/yong5eon/csvd2c/issues/9) 읽기 범위 offset·limit (주입 규칙 참조) |
 | 요구사항 | [요구사항 명세](./REQUIREMENTS.md) |
-| 작업 기록 | [최신 단계별 기록](./tasks/1793689873912.md) |
+| 계획 | [작업 계획](./PLAN.md) |
+| 작업 기록 | [최신 단계별 기록](./tasks/1793690397869.md) |
 
 ## 준비 현황
 
