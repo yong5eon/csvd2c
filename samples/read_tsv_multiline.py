@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 
 
 def main() -> None:
@@ -15,7 +16,11 @@ def main() -> None:
 			'r',
 			'rt',
 		):
-			csv: CSV = CSV(encoding='utf-8-sig', delimiter='\t')
+			csv: CSV = CSV(
+				encoding='utf-8-sig',
+				delimiter='\t',
+				header=HeaderValidator(),
+			)
 			with csv.open(str(path), mode=mode):
 				assert csv.header() == [
 					'name',

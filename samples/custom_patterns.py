@@ -5,6 +5,7 @@ from typing import (
 	Union,
 )
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.column import (
 	Error as ColumnError,
 	Pattern as ColumnPattern,
@@ -81,14 +82,18 @@ def main() -> None:
 		path: Path = Path(directory) / 'input.csv'
 		path.write_text('name\nCompany: Example\nExample Ltd\n#provider note\n', encoding='utf-8')
 		csv: CSV = CSV(
+			header=HeaderValidator(),
 			row=RowValidator(RejectComment(), Length(1), AppendSource(), Length(2)),
-			cols=(ColumnValidator(RemoveProviderPrefix(), Strip(), Required()),),
+			column=(ColumnValidator(RemoveProviderPrefix(), Strip(), Required()),),
 		)
 		with csv.open(str(path)):
 			assert csv.header() == ['name']
-			record: dict[str, str] = csv.row(header=(
-				'name',
-				'source',
+			record: dict[str, str] = dict(zip(
+				(
+					'name',
+					'source',
+				),
+				csv.row(),
 			))
 			assert record == {
 				'name': 'Example',

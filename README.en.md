@@ -8,7 +8,8 @@ csvd2c stands for **CSV Dirty to Clean**, a Python library for streaming reads a
 
 ## Features
 
-- Streaming CSV/TSV reads: decode binary input for parsing and return one record at a time as a list or dictionary
+- Streaming CSV/TSV reads: decode binary input for parsing and return one record at a time as a list
+- Header validation: validate the first record as the header on `open()`, including empty, duplicate, listed, and ordered names
 - Row cleansing: validate counts, insert, remove, reorder, merge, split, and check empty records or repeated headers
 - Column cleansing: normalize whitespace and Unicode, validate and map values, and standardize dates, numbers, and currency prefixes
 - Encoding handling: check candidates against an initial file sample and conditionally recover field bytes preserved by `surrogateescape`
@@ -41,61 +42,65 @@ from csvd2c.column.patterns import (
   Required,
   Strip,
 )
+from csvd2c.header import Validator as HeaderValidator
+from csvd2c.header.patterns import ExactOrder
 from csvd2c.row import Validator as RowValidator
 from csvd2c.row.patterns import Length
 
 csv = CSV(
   encoding="utf-8",
+  header=HeaderValidator(ExactOrder("name", "date")),
   row=RowValidator(Length(2)),
-  cols={"name": Validator(Strip(), Required())},
+  column={"name": Validator(Strip(), Required())},
 )
 
 with csv.open("input.csv"):
-  header: list[str] = csv.header()
-  for record in csv.rows(header=header):
+  print(csv.header())
+  for record in csv.rows():
     print(record)
 ```
 
 Expected output:
 
 ```text
-{'name': 'Example', 'date': '2026-01-10'}
-{'name': 'Sample', 'date': '2026-02-23'}
+['name', 'date']
+['Example', '2026-01-10']
+['Sample', '2026-02-23']
 ```
 
-`open()` does not read a header automatically. Call `header()` to consume the first record, then `rows()` for the remainder. The named `name` column must appear exactly once in the header. Dates remain original strings because no Date Pattern is configured. For TSV, use `CSV(delimiter="\t")`.
+Because a header Validator is injected, `open()` reads the first record as the header and checks the `name,date` order. `header()` returns the validated header and `rows()` reads the remaining records. The named `name` column must appear exactly once in the header. Dates remain original strings because no Date Pattern is configured. For TSV, use `CSV(delimiter="\t")`.
 
 ## Usage rules
 
-- `open()` opens the file without consuming the first record. Read within the open `with` block.
-- `header()` consumes the next raw record and stores it as the file header. Repeated calls consume subsequent records.
-- `row()` returns the next record; `rows()` streams the remainder. Output defaults to lists. Supplying `header=` maps validated values by position to dictionaries.
-- Row validation runs before column validation. Dictionary `cols` uses names from `header()`; tuple `cols` applies to the specified leading columns.
-- Method-level `row=` and `cols=` override settings for that call. Omitted arguments or `None` retain constructor settings.
-- `row()` and `header()` raise `StopIteration` at EOF; `rows()` ends normally.
+- With a header Validator in `header=`, `open()` reads and validates the first record as the header. Failure raises `csvd2c.header.Error` and closes the file. Without one, `open()` reads no record.
+- `header()` reads no record and returns a copy of the validated header, or `None` without header validation.
+- `row()` returns the next record and `rows()` streams the remainder, both as lists. Without a header Validator, the first result of a file with a header is the header record.
+- Row validation runs before column validation. Dictionary `column` uses names from the validated header; tuple `column` applies to the specified leading columns.
+- Method-level `row=` and `column=` override settings for that call; `open()`'s `header=` applies only to that file. Omitted arguments or `None` retain constructor settings.
+- `row()` raises `StopIteration` at EOF; `rows()` ends normally.
 - Existing generators cannot be used after `close()` or context exit. Call `rows()` again after reopening the file.
 
-See [detailed usage rules](./docs/README.en.md#usage-rules) for configuration constraints and complete behavior.
+See [header validation](./docs/README.en.md#header-validation) for header Patterns, renaming, and migration from previous usage, and [detailed usage rules](./docs/README.en.md#usage-rules) for configuration constraints and complete behavior.
 
 ### Reading options and output
 
-CSV defaults to `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, and `strict=True`. `open(path, mode="rb")` accepts only `rb`, `r`, and `rt`. Binary mode decodes through TextIOWrapper; text modes use the same encoding, errors, and newline settings. Write, append, and update modes are rejected before opening.
+CSV defaults to `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, and `strict=True`. `open(path, mode="rb", header=None)` accepts only `rb`, `r`, and `rt`. Binary mode decodes through TextIOWrapper; text modes use the same encoding, errors, and newline settings. Write, append, and update modes are rejected before opening.
 
-`header=` assigns keys **by position to the final validated values**; it does not change the file header. Duplicate keys and validated column count mismatches are errors. Omitted headers or `None` return lists.
+`row()` and `rows()` always return lists. Combine them with the validated header when you need dictionaries.
 
 ```python
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 
-with CSV().open("input.csv") as csv:
-  file_header: list[str] = csv.header()
-  first: list[str] = csv.row()
-  for record in csv.rows(header=("company", "raw_date")):
-    print(record)
+with CSV(header=HeaderValidator()).open("input.csv") as csv:
+  header = csv.header() or []
+  for record in csv.rows():
+    print(dict(zip(header, record)))
 ```
 
-This uses the two-column quick-start input. Changing output keys does not change the file header or named `cols` mapping. Missing or duplicate selected names are errors. Tuple settings validate only the specified leading columns. Pass method-level `cols={}` or `cols=()` to disable constructor column settings.
+Missing or duplicate selected `column` names are errors. Tuple settings validate only the specified leading columns. Pass method-level `column={}` or `column=()` to disable constructor column settings.
 
-`close()` clears the stream, header, and reading state and is safe to repeat. `rows()` selects validators and header mapping at call time. Changing the header, closing, or reopening invalidates existing generators.
+`close()` clears the stream, header, and reading state and is safe to repeat. `rows()` selects validators and header mapping at call time. Closing or reopening invalidates existing generators.
 
 ## Row structure Patterns
 

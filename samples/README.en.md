@@ -2,7 +2,7 @@
 
 [한국어](./README.md)
 
-These 22 standalone examples use the public csvd2c API, create small synthetic inputs, and check results with `assert`. They do not use external services, databases, or customer data.
+These 23 standalone examples use the public csvd2c API, create small synthetic inputs, and check results with `assert`. They do not use external services, databases, or customer data.
 
 ## Running
 
@@ -31,8 +31,9 @@ Direct row calls supply a line number; direct column calls supply a line number 
 
 | File | Topics |
 | --- | --- |
-| [read_basic.py](./read_basic.py) | `header()`, `row()`, `rows()`, EOF, preserving date-like text |
-| [read_dictionary.py](./read_dictionary.py) | File headers versus output `header=`, list/dictionary output |
+| [read_basic.py](./read_basic.py) | Injecting a header Validator, `header()`, `row()`, `rows()`, EOF, preserving date-like text |
+| [read_dictionary.py](./read_dictionary.py) | Combining the validated `header()` with list records using `dict(zip(...))`, using different keys |
+| [header_validation.py](./header_validation.py) | Header validation on `open()`, combining `Length`, `RejectEmpty`, `RejectDuplicate`, and `ExactOrder`, handling header `Error`, a custom renaming header Pattern with named column validation |
 | [read_tsv_multiline.py](./read_tsv_multiline.py) | TSV, quoted tabs, embedded newlines, UTF-8 BOM, `rb`/`r`/`rt` |
 | [detect_encoding.py](./detect_encoding.py) | Candidate order, cp949 input, ASCII ambiguity, missing-candidate errors |
 | [read_overrides_close.py](./read_overrides_close.py) | Named/positional column validation, per-call overrides, `None` versus `{}`, closing and reopening |

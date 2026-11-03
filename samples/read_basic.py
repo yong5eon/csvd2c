@@ -1,18 +1,20 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 
 
 def main() -> None:
 	"""
-	Read a header, one record, and the remaining records without accumulation.
+	Validate the header on open, then read one record and the remaining records.
 	"""
 	with TemporaryDirectory() as directory:
 		path: Path = Path(directory) / 'input.csv'
 		path.write_text('name,date\nKim,1-10\nLee,23-Feb\n', encoding='utf-8')
-		csv: CSV = CSV()
+		csv: CSV = CSV(header=HeaderValidator())
 		with csv.open(str(path)):
-			header: list[str] = csv.header()
+			header: Optional[list[str]] = csv.header()
 			assert header == [
 				'name',
 				'date',

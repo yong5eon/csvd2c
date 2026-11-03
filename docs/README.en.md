@@ -14,14 +14,15 @@ flowchart LR
   B --> C["CSV record parsing"]
   C --> D["Row Validator"]
   D --> E["Column Validator"]
-  E --> F["Return list or dict"]
+  E --> F["Return list"]
 ```
 
-`header()` consumes and stores the next raw record without applying these Validators. Subsequent `row()` or `rows()` calls read records and apply row validation before column validation. Errors propagate to the caller.
+When a header Validator is injected, `open()` reads and validates the first record as the header. Subsequent `row()` or `rows()` calls read records and apply row validation before column validation. Errors propagate to the caller.
 
 ## Contents
 
-- [Usage rules](#usage-rules): encoding candidate checks, modes, headers, output types, and lifetime
+- [Usage rules](#usage-rules): encoding candidate checks, modes, output types, and lifetime
+- [Header validation](#header-validation): header Validator injection, provided Patterns, renaming, and migration
 - [Row structure Patterns](#row-structure-patterns): reordering, merging, splitting, and error handling
 - [Column Patterns](#column-patterns): text, dates, numbers, currencies, and encoding recovery
 - [Processing principles](#processing-principles): original-data preservation and large-input constraints
@@ -29,30 +30,30 @@ flowchart LR
 ## Usage rules
 
 - `detect_encoding(path, *args)` checks an initial sample of up to 1MiB in candidate order and returns the first success. One additional byte determines whether the sample reaches EOF. Missing candidates, empty files, and failure of all candidates are errors. BOMs do not automatically select candidates; use `utf-8-sig` for UTF-8 BOM handling. Sample success guarantees neither the actual encoding nor whole-file validity.
-- `CSV.open(path)` wraps a binary file in `TextIOWrapper` and closes it on context exit. It does not automatically consume the first record.
-- `open(path, mode="rb")` supports read-only `rb`, `r`, and `rt`. Text modes use the constructor's encoding, errors, and newline settings. Write, append, and update modes are rejected before opening the file.
+- `CSV.open(path)` wraps a binary file in `TextIOWrapper` and closes it on context exit. Without a header Validator, it does not consume the first record.
+- `open(path, mode="rb", header=None)` supports read-only `rb`, `r`, and `rt`. Text modes use the constructor's encoding, errors, and newline settings. Write, append, and update modes are rejected before opening the file. See [header validation](#header-validation) for `header`.
 - `close()` immediately closes the current stream and clears the header and reading state. Repeated calls are safe; generators from a closed stream cannot be reused.
-- `header()` consumes the next raw record, stores it as the current header, and returns a copy. Repeated calls consume additional records.
-- `row()` returns one next record. `rows()` is a generator of remaining records. Both share the file position and must be used inside the open context.
-- `row(header=("name", "date"))` returns a dictionary by mapping validated values to keys in their current order. `rows(header=...)` streams dictionaries. Omitted headers or `None` retain list output. The output header applies only to that call and neither consumes file headers nor changes named validator mapping. Duplicate keys and validated column count mismatches are errors; an empty header maps only an empty record.
-- `row()` and `header()` raise `StopIteration` at EOF; `rows()` ends normally.
-- Constructor `row` and `cols` configure row and column Validators. Method arguments override them only for that call. Omitted arguments or `None` use constructor settings; no settings means no validation.
-- Dictionary `cols` validates only named columns and requires a prior `header()` call. Missing or duplicate selected names are errors. Tuple `cols` validates only the specified prefix.
+- `header()` reads no record and returns a copy of the header validated by `open()`, or `None` without header validation.
+- `row()` returns the next record as a list. `rows()` is a generator of remaining records as lists. Both share the file position and must be used inside the open context. Without a header Validator, the first result of a file with a header is the header record.
+- `row()` raises `StopIteration` at EOF; `rows()` ends normally.
+- Constructor `row` and `column` configure row and column Validators. `row(row=..., column=...)` and `rows(row=..., column=...)` override them only for that call. Omitted arguments or `None` use constructor settings; no settings means no validation.
+- Dictionary `column` validates only named columns of the validated header and requires a header Validator. Missing or duplicate selected names are errors. Tuple `column` validates only the specified prefix.
 - Row validation runs before column validation. Header/record column count equality is not enforced automatically; define structural rules in row Patterns. Missing selected record columns are errors.
-- `rows()` selects validators and header mapping when called. Changing the header, closing the context, or reopening the file invalidates existing generators.
+- `rows()` selects validators and header mapping when called. Closing the context or reopening the file invalidates existing generators.
 - Use `delimiter="\t"` for TSV. The default delimiter is comma, with `strict=True` CSV parsing. `escapechar` defaults to `None`; set `escapechar="\\"` to read input such as quoted fields containing backslash-escaped quotes. Parsing and configuration errors follow Python's standard `csv.reader`.
 
 For example, if the first record in `input.tsv` is a header and the next record is `1<TAB>"Acme \"quoted\" name"`, this configuration reads the data row as `['1', 'Acme "quoted" name']`:
 
 ```python
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 
 with CSV(
   delimiter="\t",
   escapechar="\\",
   strict=True,
+  header=HeaderValidator(),
 ).open("input.tsv") as data:
-  data.header()
   print(data.row())
 ```
 
@@ -60,11 +61,109 @@ with CSV(
 - `surrogateescape` preserves undecodable bytes but does not repair them. Validate these values before sending them to a database. Already stored `�` requires separate validation.
 - Input is not loaded in full, but oversized records can increase memory usage. Do not indiscriminately increase the CSV parser's field size limit.
 
+## Header validation
+
+csvd2c does not decide whether the first record is a header. With a header Validator, the first record is treated as the header; without one, every record is read as data.
+
+### Injection and behavior
+
+A header Validator is a `csvd2c.header.Validator`, passed as `header` to the constructor or `open()`. The constructor value is the default; a value passed to `open()` applies only while that file is open. Passing `None` or omitting it uses the constructor value, and reopening the file uses the constructor value again.
+
+```mermaid
+flowchart TD
+  Open["open()"] --> Has{"Header Validator?"}
+  Has -- no --> Ready["Enter context; header() is None"]
+  Has -- yes --> Read["Read first record"]
+  Read -- no record --> Empty["header.Error(value=None); close file"]
+  Read --> Validate["Run header Validator"]
+  Validate -- failure --> Fail["Propagate header.Error; close file"]
+  Validate -- success --> Store["Store result as header; enter context"]
+```
+
+- With a header Validator, `open()` reads and validates the first record before entering the `with` block. The first `row()` reads the second record.
+- On failure, the exception propagates from `open()` and the file is closed. The failed header is not stored. An empty file raises `csvd2c.header.Error` with `value` set to `None`.
+- The Validator's return value becomes the header names. `header()` returns a copy without reading records.
+- Named column Validators (dictionary `column`) locate columns by the stored header. Each name must occur exactly once; otherwise the first `row()` or `rows()` raises `ValueError`.
+
+Header Patterns and Validators take a list of header names and return a list of names: `__call__(value: List[str]) -> List[str]`, without line numbers or column identifiers. Failures raise `csvd2c.header.Error(message, value)`, a subclass of the common `csvd2c.Error`; `value` is the header passed to the failing Pattern.
+
+### Provided Patterns
+
+Import from `csvd2c.header.patterns`. Names are compared exactly, without changing case or whitespace.
+
+| Pattern | Rejects when |
+| --- | --- |
+| `RejectEmpty()` | A name is exactly empty. A header without fields passes |
+| `RejectDuplicate()` | A name occurs more than once |
+| `Length(count)` | The number of names differs from `count` |
+| `Includes(*names)` | A specified name is missing. Extra names and order are not checked |
+| `Exact(*names)` | The names differ from the specified names when order is ignored. Repeated names count separately |
+| `ExactOrder(*names)` | The names differ from the specified names in value or order |
+
+`Exact("a", "b")` accepts `b,a` and rejects `a,a,b`. To reject an empty header line (zero fields), combine `Length` or a name-list check. The header `RejectEmpty` shares only its name with the row Pattern `csvd2c.row.patterns.RejectEmpty`; use aliases when importing both. BOMs and trailing empty headers are not corrected automatically; read UTF-8 BOM files with `encoding="utf-8-sig"`.
+
+```python
+from csvd2c import CSV
+from csvd2c.column import Validator
+from csvd2c.column.patterns import Required
+from csvd2c.header import Error as HeaderError
+from csvd2c.header import Validator as HeaderValidator
+from csvd2c.header.patterns import (
+  ExactOrder,
+  RejectDuplicate,
+  RejectEmpty,
+)
+
+csv = CSV(
+  header=HeaderValidator(RejectEmpty(), RejectDuplicate(), ExactOrder("name", "date")),
+  column={"name": Validator(Required())},
+)
+try:
+  with csv.open("input.csv"):
+    print(csv.header())
+    for record in csv.rows():
+      print(record)
+except HeaderError as error:
+  print("Invalid header:", error.value, error.message)
+```
+
+If `input.csv` starts with `name,date`, this prints the header and data records. Otherwise it does not enter the `with` block and prints `Invalid header:`.
+
+### Renaming
+
+The header Validator's return value becomes the header names, so a custom Pattern can rename columns for named column mapping. A renaming Pattern is not provided.
+
+```python
+from typing import Dict, List
+from csvd2c.header import Pattern, Validator
+
+class Rename(Pattern):
+  def __init__(self, names: Dict[str, str]) -> None:
+    self.names = dict(names)
+
+  def __call__(self, value: List[str]) -> List[str]:
+    return [self.names.get(name, name) for name in value]
+
+validator = Validator(Rename({"customer name": "name"}))
+assert validator(["customer name", "date"]) == ["name", "date"]
+```
+
+With this Validator injected, `column={"name": ...}` applies to the `customer name` column.
+
+### Migration
+
+| Previous usage | Now |
+| --- | --- |
+| `csv.header()` consumed the first record as the header | Inject `CSV(header=HeaderValidator())` or `open(path, header=HeaderValidator())`, then read it with `csv.header()` |
+| Repeated `header()` calls consumed further records | Not supported. Read data records with `row()` |
+| `cols=` | `column=` |
+| `row(header=...)` or `rows(header=...)` returned dictionaries | Convert the list yourself, for example `dict(zip(csv.header(), record))` |
+
 ## Validation positions and error contracts
 
 Row `Pattern` and `Validator` use `__call__(value: List[str], row: int) -> List[str]`; column implementations use `__call__(value: str, row: int, column: Union[int, str]) -> str`, omitting `self` here. Direct calls require position arguments. Existing one-argument custom Patterns must be migrated to these signatures.
 
-Injecting Validators into CSV supplies positions automatically. Line numbers are 1-based physical file lines, captured after reading the entire record. A quoted record spanning lines 2–3 reports line 3, not the precise offending character or a logical record number. Tuple column validators receive a 0-based index; named validators receive the configured name. Output `header=` does not change the identifier.
+Injecting Validators into CSV supplies positions automatically. Line numbers are 1-based physical file lines, captured after reading the entire record. A quoted record spanning lines 2–3 reports line 3, not the precise offending character or a logical record number. Tuple column validators receive a 0-based index; named validators receive the configured name.
 
 Validation failures are reported as exceptions:
 
@@ -240,11 +339,13 @@ from csvd2c.column.patterns import (
   RecoverEncoding,
   RejectSurrogates,
 )
+from csvd2c.header import Validator as HeaderValidator
 
 csv = CSV(
   encoding="utf-8",
   errors="surrogateescape",
-  cols={
+  header=HeaderValidator(),
+  column={
     "description": Validator(
       IfUndecodable(RecoverEncoding("cp1258")),
       RejectSurrogates(),

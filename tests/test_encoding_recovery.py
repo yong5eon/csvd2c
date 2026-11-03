@@ -2,11 +2,13 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import List
 from unittest import (
 	TestCase,
 	main,
 )
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.column import (
 	Error,
 	Validator,
@@ -119,7 +121,8 @@ class EncodingRecoveryTests(TestCase):
 			csv = CSV(
 				encoding='utf-8',
 				errors='surrogateescape',
-				cols={
+				header=HeaderValidator(),
+				column={
 					'description': Validator(
 						IfUndecodable(RecoverEncoding('cp1258')),
 						RejectSurrogates(),
@@ -127,16 +130,16 @@ class EncodingRecoveryTests(TestCase):
 				},
 			)
 			with csv.open(str(path)):
-				header = csv.header()
-				result = list(csv.rows(header=header))
+				self.assertEqual(csv.header(), ['id', 'description'])
+				result: List[List[str]] = list(csv.rows())
 			self.assertEqual(
 				result,
 				[
-					{'id': '1', 'description': 'Công ty'},
-					{'id': '2', 'description': 'Công ty'},
+					['1', 'Công ty'],
+					['2', 'Công ty'],
 				],
 			)
-			self.assertEqual(result[0]['description'].encode('utf-8'), 'Công ty'.encode('utf-8'))
+			self.assertEqual(result[0][1].encode('utf-8'), 'Công ty'.encode('utf-8'))
 		return
 
 

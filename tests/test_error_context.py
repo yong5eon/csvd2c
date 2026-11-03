@@ -18,6 +18,7 @@ from csvd2c import (
 	CSV,
 	Error,
 )
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.row import (
 	Error as RowError,
 	Pattern as RowPattern,
@@ -179,9 +180,11 @@ class ErrorContextTests(TestCase):
 			'r',
 			'rt',
 		):
-			csv: CSV = CSV(cols={'name': ColumnValidator(Strip(), Required())})
+			csv: CSV = CSV(
+				header=HeaderValidator(),
+				column={'name': ColumnValidator(Strip(), Required())},
+			)
 			with self.subTest(mode=mode), csv.open(str(self.path), mode):
-				csv.header()
 				with self.assertRaises(ColumnError) as context:
 					csv.row()
 				self.assertEqual(context.exception.value, '')
@@ -201,11 +204,11 @@ class ErrorContextTests(TestCase):
 				2,
 			):
 				with self.assertRaises(ColumnError) as context:
-					next(csv.rows(cols=cols))
+					next(csv.rows(column=cols))
 				self.assertEqual(context.exception.value, '')
 				self.assertEqual(context.exception.row, line)
 				self.assertEqual(context.exception.column, 0)
-			self.assertEqual(list(csv.rows(cols=cols)), [])
+			self.assertEqual(list(csv.rows(column=cols)), [])
 		return
 
 	def test_row_changes_define_column_positions(self) -> None:
@@ -219,7 +222,7 @@ class ErrorContextTests(TestCase):
 		)
 		for row, text in cases:
 			self.path.write_text(text, encoding='utf-8')
-			with self.subTest(row=row), CSV(row=row, cols=(validator,)).open(str(self.path)) as csv:
+			with self.subTest(row=row), CSV(row=row, column=(validator,)).open(str(self.path)) as csv:
 				with self.assertRaises(ColumnError) as context:
 					csv.row()
 				self.assertEqual(context.exception.value, '')
@@ -230,13 +233,13 @@ class ErrorContextTests(TestCase):
 	def test_named_column_keeps_existing_header_index(self) -> None:
 		self.path.write_text('left,right\nok, \n', encoding='utf-8')
 		csv: CSV = CSV(
+			header=HeaderValidator(),
 			row=RowValidator(Reorder(1, 0)),
-			cols={'left': ColumnValidator(Strip(), Required())},
+			column={'left': ColumnValidator(Strip(), Required())},
 		)
 		with csv.open(str(self.path)):
-			csv.header()
 			with self.assertRaises(ColumnError) as context:
-				csv.row(header=('renamed', 'other'))
+				csv.row()
 		self.assertEqual(context.exception.value, '')
 		self.assertEqual(context.exception.row, 2)
 		self.assertEqual(context.exception.column, 'left')

@@ -10,6 +10,7 @@ from typing import (
 	Union,
 )
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.row import (
 	Error as RowError,
 	Validator as RowValidator,
@@ -43,12 +44,13 @@ def main() -> None:
 		rejected_path: Path = Path(directory) / 'rejected.jsonl'
 		path.write_text('name,date\nKim,1-10\n\nname,date\nLee\nPark,23-Feb\n', encoding='utf-8')
 		csv: CSV = CSV(
+			header=HeaderValidator(),
 			row=RowValidator(
 				RejectEmpty(),
 				RejectHeader(*HEADER),
 				Length(len(HEADER)),
 			),
-			cols={
+			column={
 				'name': ColumnValidator(Strip(), Required()),
 				'date': ColumnValidator(Strip(), Required()),
 			},
@@ -59,7 +61,7 @@ def main() -> None:
 			assert csv.header() == list(HEADER)
 			while True:
 				try:
-					result: Dict[str, str] = csv.row(header=HEADER)
+					result: Dict[str, str] = dict(zip(HEADER, csv.row()))
 				except StopIteration:
 					break
 				except (RowError, ColumnError) as error:

@@ -5,6 +5,7 @@ from typing import (
 	List,
 )
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 
 
 def batches(
@@ -39,8 +40,7 @@ def main() -> None:
 				output.write(str(index) + '\n')
 		total = 0
 		sizes: list[int] = []
-		with CSV().open(str(path)) as csv:
-			csv.header()
+		with CSV(header=HeaderValidator()).open(str(path)) as csv:
 			for batch in batches(csv.rows(), size=10):
 				assert len(batch) <= 10
 				# Replace this output with the existing task's batch storage call.

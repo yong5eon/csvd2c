@@ -1,42 +1,52 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 
 
 def main() -> None:
 	"""
-	Map values by position without renaming the stored validation header.
+	Build dictionaries from the validated header and list records.
 	"""
 	with TemporaryDirectory() as directory:
 		path: Path = Path(directory) / 'input.csv'
 		path.write_text('name,date\nKim,1-10\nLee,23-Feb\n', encoding='utf-8')
-		csv: CSV = CSV()
+		csv: CSV = CSV(header=HeaderValidator())
 		with csv.open(str(path)):
-			header: list[str] = csv.header()
-			record: dict[str, str] = csv.row(header=header)
+			header: Optional[list[str]] = csv.header()
+			assert header is not None
+			assert header == [
+				'name',
+				'date',
+			]
+			record: dict[str, str] = dict(zip(header, csv.row()))
 			assert record == {
 				'name': 'Kim',
 				'date': '1-10',
 			}
-			for record in csv.rows(header=(
-				'company',
-				'raw_date',
-			)):
+			print(record)
+			for values in csv.rows():
+				record = dict(zip(header, values))
 				assert record == {
-					'company': 'Lee',
-					'raw_date': '23-Feb',
+					'name': 'Lee',
+					'date': '23-Feb',
 				}
 				print(record)
 		with csv.open(str(path)):
-			# No implicit header consumption: this maps the first record itself.
-			first: dict[str, str] = csv.row(header=(
-				'first',
-				'second',
+			# Use different keys by zipping list records with any names.
+			first: dict[str, str] = dict(zip(
+				(
+					'company',
+					'raw_date',
+				),
+				csv.row(),
 			))
 			assert first == {
-				'first': 'name',
-				'second': 'date',
+				'company': 'Kim',
+				'raw_date': '1-10',
 			}
+			print(first)
 	return
 
 
