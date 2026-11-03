@@ -22,6 +22,7 @@ flowchart LR
 ## 목차
 
 - [사용 규칙](#사용-규칙): 인코딩 후보 검사, 읽기 모드, 반환 형태와 수명
+- [읽기 범위](#읽기-범위): `offset`·`limit`으로 읽을 레코드 구간 지정
 - [헤더 검증](#헤더-검증): 헤더 Validator 주입, 제공 Pattern, 이름 변경과 마이그레이션
 - [행 구조 Pattern](#행-구조-pattern): 컬럼 재배치·병합·분리와 오류 처리
 - [컬럼 Pattern](#컬럼-pattern): 문자열·날짜·숫자·통화 정제와 인코딩 복구
@@ -31,8 +32,8 @@ flowchart LR
 
 - `detect_encoding(path, *args)`는 앞부분 최대 1MiB를 후보 순서대로 검사하여 첫 성공 인코딩을 반환합니다. 파일 끝 확인을 위해 1바이트를 추가로 읽습니다. 후보 누락, 빈 파일과 모든 후보 실패는 오류입니다. BOM으로 후보를 자동 선택하지 않으며, UTF-8 BOM 처리가 필요하면 `utf-8-sig`를 후보에 넣습니다. 샘플 성공은 실제 인코딩이나 전체 파일의 유효성을 보장하지 않습니다.
 - `CSV.open(path)`는 바이너리 파일을 `TextIOWrapper`로 감싸고, 컨텍스트 종료 시 닫습니다. 헤더 Validator가 없으면 첫 레코드를 소비하지 않습니다.
-- `open(path, mode="rb", header=None)`는 읽기 전용 `rb`, `r`, `rt`를 지원합니다. 텍스트 모드도 생성자의 인코딩·오류·개행 설정을 사용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다. `header`는 [헤더 검증](#헤더-검증)을 참고하세요.
-- `close()`는 현재 스트림을 즉시 닫고 헤더와 읽기 상태를 초기화합니다. 반복 호출해도 안전하며, 닫힌 스트림의 generator는 사용할 수 없습니다.
+- `open(path, mode="rb", header=None, offset=None, limit=None)`는 읽기 전용 `rb`, `r`, `rt`를 지원합니다. 텍스트 모드도 생성자의 인코딩·오류·개행 설정을 사용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다. `header`는 [헤더 검증](#헤더-검증)을, `offset`·`limit`은 [읽기 범위](#읽기-범위)를 참고하세요.
+- `close()`는 현재 스트림을 즉시 닫고 헤더와 읽기 상태·범위를 초기화합니다. 반복 호출해도 안전하며, 닫힌 스트림의 generator는 사용할 수 없습니다.
 - `header()`는 레코드를 읽지 않고, `open()`에서 검증한 헤더의 복사본을 반환합니다. 헤더 검증을 하지 않았으면 `None`을 반환합니다.
 - `row()`는 다음 레코드 하나를 list로 반환합니다. `rows()`는 남은 레코드를 list로 하나씩 제공하는 generator입니다. 두 메소드는 같은 읽기 위치를 공유하며 열린 컨텍스트 안에서 사용해야 합니다. 헤더 Validator 없이 헤더가 있는 파일을 읽으면 첫 결과는 헤더 레코드입니다.
 - `row()`는 파일 끝에서 `StopIteration`을 발생시키고, `rows()`는 정상 종료합니다.
@@ -60,6 +61,103 @@ with CSV(
 - 디코딩·파싱·검증 오류는 전파하며, 읽은 레코드를 자동으로 재처리하거나 오류 이후 복구하지 않습니다.
 - `surrogateescape`는 해석할 수 없는 바이트를 보존할 뿐 복구하지 않습니다. 해당 값을 검사 없이 DB 등에 전달하지 마세요. 이미 저장된 `�`는 별도로 검증해야 합니다.
 - 파일 전체를 적재하지 않지만, 비정상적으로 큰 레코드는 메모리 사용량에 영향을 줍니다. CSV 파서의 필드 크기 제한을 무작정 늘리지 마세요.
+
+## 읽기 범위
+
+`offset`은 건너뛸 레코드 수, `limit`은 `row()`·`rows()`로 읽을 최대 레코드 수입니다. 호출자가 레코드 수를 직접 세거나 건너뛸 레코드를 빈 Validator로 읽어 버리지 않아도 파일의 일부 구간만 처리할 수 있습니다.
+
+### 지정 방법
+
+범위는 `CSV` 생성자와 `open()`에서만 지정합니다. `row()`·`rows()`에는 범위 인자가 없습니다.
+
+| 위치 | 인자 | 의미 |
+| --- | --- | --- |
+| 생성자 | `offset=0`, `limit=None` | 모든 `open()`의 기본 범위. `limit=None`은 제한 없음 |
+| `open()` | `offset=None`, `limit=None` | 이번 오픈에만 적용. 생략하거나 `None`이면 생성자 값 사용 |
+
+- 값은 0 이상의 정수입니다. 정수가 아닌 값과 `True`·`False`는 `TypeError`, 음수는 `ValueError`입니다. `open()`의 값은 파일을 열기 전에 검사합니다.
+- `offset`과 `limit`은 각각 따로 덮어씁니다. 예를 들어 생성자 `limit=100`에 `open(path, offset=200)`이면 이번 오픈은 `offset=200, limit=100`입니다.
+- `open()`의 `None`은 생성자 값을 뜻하므로, 생성자에서 지정한 `limit`을 `open()`에서 해제할 수 없습니다. 제한 없이 읽을 파일이 있으면 생성자에서 `limit`을 지정하지 말고 `open()`마다 지정하세요.
+- `open()`할 때마다 처음부터 다시 셉니다. 이전 오픈의 범위나 진행 상태는 남지 않습니다.
+
+### 레코드 위치
+
+레코드 위치는 0부터 셉니다. 단위는 물리 행이 아니라 논리 레코드이므로 인용된 필드 안에 개행이 있어도 1건입니다. csvd2c는 첫 레코드가 헤더인지 판단하지 않습니다. 헤더 Validator가 적용되어 `open()`이 읽은 헤더는 세지 않고, 그렇지 않으면 파일의 첫 레코드가 위치 0입니다.
+
+| 파일 행 | 내용 | 헤더 Validator 적용 | 헤더 Validator 미적용 |
+| --- | --- | --- | --- |
+| 1 | `id,name` | 헤더(세지 않음) | 0 |
+| 2 | `1,Kim` | 0 | 1 |
+| 3 | `2,Lee` | 1 | 2 |
+
+### 읽기 흐름
+
+`row()`를 호출하거나 `rows()`가 다음 레코드를 요청할 때마다 다음 순서로 처리합니다.
+
+```mermaid
+flowchart TD
+  A["레코드 요청"] --> B{"limit만큼 읽었나?"}
+  B -- 예 --> C["종료: row()는 StopIteration, rows()는 순회 종료"]
+  B -- 아니요 --> D{"건너뛸 offset이 남았나?"}
+  D -- 예 --> E["레코드를 읽고 검증 없이 버림"] --> D
+  D -- 아니요 --> F["레코드 읽기, limit 1건 사용"]
+  F --> G["행 Validator → 컬럼 Validator"]
+  G --> H["list 반환 또는 검증 Error"]
+```
+
+- offset 구간은 첫 레코드 요청 때 읽어서 버립니다. `open()`은 이 구간을 읽지 않습니다. 건너뛰는 레코드에는 행·컬럼 Validator를 적용하지 않지만, 디코딩·파싱 오류는 레코드 경계를 확정할 수 없으므로 그대로 전파합니다. 레코드 수보다 큰 offset은 바로 종료합니다.
+- limit은 성공 건수가 아니라 읽은 레코드 수입니다. 행·컬럼 검증에 실패한 레코드도 1건으로 셉니다. 디코딩·파싱 오류로 레코드를 받지 못한 경우는 세지 않습니다.
+- limit을 채우면 다음 레코드를 읽지 않습니다. 따라서 그 레코드에 파싱 오류가 있어도 발생하지 않습니다. `limit=0`이면 offset 구간을 포함해 아무 레코드도 읽지 않습니다.
+- `row()`와 `rows()`는 같은 범위 상태를 공유합니다. 섞어 호출하거나 검증 실패 후 `rows()`를 다시 호출해도 같은 범위 안에서 이어서 읽습니다.
+- 범위를 지정하지 않으면 기존과 같이 파일 끝까지 읽습니다.
+
+### 예제
+
+다음 예제는 임시 파일을 만들어 두 건씩 나누어 읽습니다. 세 번째 레코드는 이름이 비어 검증에 실패하지만 limit에는 포함됩니다.
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from csvd2c import CSV
+from csvd2c.column import (
+  Error as ColumnError,
+  Validator as ColumnValidator,
+)
+from csvd2c.column.patterns import Required
+from csvd2c.header import Validator as HeaderValidator
+
+with TemporaryDirectory() as directory:
+  path = Path(directory) / "input.csv"
+  path.write_bytes(b"id,name\n1,Kim\n2,Lee\n3,\n4,Park\n5,Choi\n")
+  csv = CSV(
+    header=HeaderValidator(),
+    column={"name": ColumnValidator(Required())},
+    limit=2,
+  )
+  for offset in (0, 2, 4):
+    with csv.open(str(path), offset=offset):
+      page = []
+      while True:
+        try:
+          page.append(csv.row())
+        except ColumnError as error:
+          print("rejected line", error.row)
+        except StopIteration:
+          break
+      print(offset, page)
+```
+
+기대 출력:
+
+```text
+0 [['1', 'Kim'], ['2', 'Lee']]
+rejected line 4
+2 [['4', 'Park']]
+4 [['5', 'Choi']]
+```
+
+전체 실행 예제는 [read_range.py](../samples/read_range.py)를 참고하세요.
 
 ## 헤더 검증
 

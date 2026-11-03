@@ -10,6 +10,7 @@ csvd2c는 **CSV Dirty to Clean**의 약자로, 불규칙한 CSV·TSV 데이터�
 
 - CSV·TSV 순차 읽기: 바이너리 파일을 텍스트로 디코딩해 파싱하고, list로 한 레코드씩 반환
 - 헤더 검증: `open()` 시 첫 레코드를 헤더로 검증, 빈·중복 이름과 이름 목록·순서 검사
+- 읽기 범위: 생성자와 `open()`의 `offset`·`limit`으로 읽을 레코드 구간 지정
 - 행 정제: 컬럼 수 검사, 삽입·제거·재배치·병합·분리, 반복 헤더와 빈 행 검사
 - 컬럼 정제: 공백·Unicode 정규화, 값 검증·매핑, 날짜·숫자·통화 표기 통일
 - 인코딩 처리: 파일 앞부분의 후보 검사와 `surrogateescape`로 보존한 필드 바이트의 조건부 복구
@@ -78,13 +79,14 @@ with csv.open("input.csv"):
 - `row` Validator를 먼저 실행하고 그 결과에 `column` Validator를 적용합니다. `column`이 dict이면 검증된 헤더의 이름 기준, tuple이면 앞쪽 컬럼부터 적용합니다.
 - `row()`·`rows()`의 `row=`·`column=`는 해당 호출의 설정을 교체합니다. `open()`의 `header=`는 그 파일에만 적용됩니다. 생략하거나 `None`을 전달하면 생성자 설정을 사용합니다.
 - `row()`는 파일 끝에서 `StopIteration`을 발생시키며, `rows()`는 정상 종료합니다.
+- 생성자와 `open()`의 `offset`·`limit`으로 `row()`·`rows()`가 읽을 레코드 구간을 지정합니다. 위치는 0부터 세고, 헤더 Validator로 읽은 헤더는 세지 않습니다. 검증에 실패한 레코드도 limit에 포함되며, limit을 채우면 `row()`는 `StopIteration`을 발생시키고 `rows()`는 종료합니다.
 - `close()` 또는 컨텍스트 종료 후에는 기존 generator를 사용할 수 없습니다. 파일을 다시 열었다면 새로 `rows()`를 호출하세요.
 
-헤더 Pattern, 이름 변경과 이전 사용법의 마이그레이션은 [헤더 검증](./docs/README.md#헤더-검증)을, 설정별 제약과 상세 동작은 [사용 규칙 상세 설명](./docs/README.md#사용-규칙)을 참고하세요.
+헤더 Pattern, 이름 변경과 이전 사용법의 마이그레이션은 [헤더 검증](./docs/README.md#헤더-검증)을, 범위 계산의 상세 규칙은 [읽기 범위](./docs/README.md#읽기-범위)를, 설정별 제약과 상세 동작은 [사용 규칙 상세 설명](./docs/README.md#사용-규칙)을 참고하세요.
 
 ### 읽기 설정과 반환값
 
-`CSV`의 기본 설정은 `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, `strict=True`입니다. `open(path, mode="rb", header=None)`는 `rb`·`r`·`rt`만 지원합니다. 바이너리 모드에서는 `TextIOWrapper`로 디코딩하며, 텍스트 모드도 같은 인코딩·오류·개행 설정을 적용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다.
+`CSV`의 기본 설정은 `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, `strict=True`입니다. `open(path, mode="rb", header=None, offset=None, limit=None)`는 `rb`·`r`·`rt`만 지원합니다. 바이너리 모드에서는 `TextIOWrapper`로 디코딩하며, 텍스트 모드도 같은 인코딩·오류·개행 설정을 적용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다.
 
 `row()`·`rows()`는 항상 list를 반환합니다. dict가 필요하면 검증된 헤더와 직접 연결합니다.
 

@@ -2,7 +2,7 @@
 
 [English](./README.en.md)
 
-csvd2c의 공개 API를 사용하는 독립 실행 예제 23개입니다. 작은 합성 데이터를 직접 만들고 결과를 `assert`로 확인합니다. 외부 서비스, DB, 고객 데이터는 사용하지 않습니다.
+csvd2c의 공개 API를 사용하는 독립 실행 예제 24개입니다. 작은 합성 데이터를 직접 만들고 결과를 `assert`로 확인합니다. 외부 서비스, DB, 고객 데이터는 사용하지 않습니다.
 
 ## 실행
 
@@ -39,6 +39,7 @@ python -m unittest discover -s tests -p "test_samples.py" -v
 | [read_overrides_close.py](./read_overrides_close.py) | 이름·위치 기반 컬럼 검증, 호출별 교체, `None`과 `{}` 차이, 닫기·재개 |
 | [stream_export.py](./stream_export.py) | `csv.writer`로 UTF-8 CSV 저장, 입력 전체를 쌓지 않는 처리 |
 | [bounded_batches.py](./bounded_batches.py) | 최대 10행씩 전달, 마지막 잔여 배치, 기존 ETL 저장 작업 연결 위치 |
+| [read_range.py](./read_range.py) | `open()`의 `offset`으로 구간 나눠 읽기, 생성자 `limit`, 검증 실패 레코드의 limit 포함, 인용 개행 레코드 1건, `limit=0`, 헤더 Validator가 없을 때의 위치 0 |
 
 ### 행 구조와 오류 처리
 
