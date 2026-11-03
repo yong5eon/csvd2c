@@ -10,6 +10,7 @@ csvd2c stands for **CSV Dirty to Clean**, a Python library for streaming reads a
 
 - Streaming CSV/TSV reads: decode binary input for parsing and return one record at a time as a list
 - Header validation: validate the first record as the header on `open()`, including empty, duplicate, listed, and ordered names
+- Read range: select the records to read with `offset` and `limit` on the constructor and `open()`
 - Row cleansing: validate counts, insert, remove, reorder, merge, split, and check empty records or repeated headers
 - Column cleansing: normalize whitespace and Unicode, validate and map values, and standardize dates, numbers, and currency prefixes
 - Encoding handling: check candidates against an initial file sample and conditionally recover field bytes preserved by `surrogateescape`
@@ -78,13 +79,14 @@ Because a header Validator is injected, `open()` reads the first record as the h
 - Row validation runs before column validation. Dictionary `column` uses names from the validated header; tuple `column` applies to the specified leading columns.
 - Method-level `row=` and `column=` override settings for that call; `open()`'s `header=` applies only to that file. Omitted arguments or `None` retain constructor settings.
 - `row()` raises `StopIteration` at EOF; `rows()` ends normally.
+- `offset` and `limit` on the constructor and `open()` select the records read by `row()` and `rows()`. Positions start at 0, and a header read by a header Validator is not counted. Records that fail validation count toward the limit; once it is reached, `row()` raises `StopIteration` and `rows()` ends.
 - Existing generators cannot be used after `close()` or context exit. Call `rows()` again after reopening the file.
 
-See [header validation](./docs/README.en.md#header-validation) for header Patterns, renaming, and migration from previous usage, and [detailed usage rules](./docs/README.en.md#usage-rules) for configuration constraints and complete behavior.
+See [header validation](./docs/README.en.md#header-validation) for header Patterns, renaming, and migration from previous usage, [read range](./docs/README.en.md#read-range) for range counting rules, and [detailed usage rules](./docs/README.en.md#usage-rules) for configuration constraints and complete behavior.
 
 ### Reading options and output
 
-CSV defaults to `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, and `strict=True`. `open(path, mode="rb", header=None)` accepts only `rb`, `r`, and `rt`. Binary mode decodes through TextIOWrapper; text modes use the same encoding, errors, and newline settings. Write, append, and update modes are rejected before opening.
+CSV defaults to `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, and `strict=True`. `open(path, mode="rb", header=None, offset=None, limit=None)` accepts only `rb`, `r`, and `rt`. Binary mode decodes through TextIOWrapper; text modes use the same encoding, errors, and newline settings. Write, append, and update modes are rejected before opening.
 
 `row()` and `rows()` always return lists. Combine them with the validated header when you need dictionaries.
 

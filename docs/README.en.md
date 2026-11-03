@@ -22,6 +22,7 @@ When a header Validator is injected, `open()` reads and validates the first reco
 ## Contents
 
 - [Usage rules](#usage-rules): encoding candidate checks, modes, output types, and lifetime
+- [Read range](#read-range): selecting records with `offset` and `limit`
 - [Header validation](#header-validation): header Validator injection, provided Patterns, renaming, and migration
 - [Row structure Patterns](#row-structure-patterns): reordering, merging, splitting, and error handling
 - [Column Patterns](#column-patterns): text, dates, numbers, currencies, and encoding recovery
@@ -31,8 +32,8 @@ When a header Validator is injected, `open()` reads and validates the first reco
 
 - `detect_encoding(path, *args)` checks an initial sample of up to 1MiB in candidate order and returns the first success. One additional byte determines whether the sample reaches EOF. Missing candidates, empty files, and failure of all candidates are errors. BOMs do not automatically select candidates; use `utf-8-sig` for UTF-8 BOM handling. Sample success guarantees neither the actual encoding nor whole-file validity.
 - `CSV.open(path)` wraps a binary file in `TextIOWrapper` and closes it on context exit. Without a header Validator, it does not consume the first record.
-- `open(path, mode="rb", header=None)` supports read-only `rb`, `r`, and `rt`. Text modes use the constructor's encoding, errors, and newline settings. Write, append, and update modes are rejected before opening the file. See [header validation](#header-validation) for `header`.
-- `close()` immediately closes the current stream and clears the header and reading state. Repeated calls are safe; generators from a closed stream cannot be reused.
+- `open(path, mode="rb", header=None, offset=None, limit=None)` supports read-only `rb`, `r`, and `rt`. Text modes use the constructor's encoding, errors, and newline settings. Write, append, and update modes are rejected before opening the file. See [header validation](#header-validation) for `header` and [read range](#read-range) for `offset` and `limit`.
+- `close()` immediately closes the current stream and clears the header, reading state, and range. Repeated calls are safe; generators from a closed stream cannot be reused.
 - `header()` reads no record and returns a copy of the header validated by `open()`, or `None` without header validation.
 - `row()` returns the next record as a list. `rows()` is a generator of remaining records as lists. Both share the file position and must be used inside the open context. Without a header Validator, the first result of a file with a header is the header record.
 - `row()` raises `StopIteration` at EOF; `rows()` ends normally.
@@ -60,6 +61,103 @@ with CSV(
 - Decoding, parsing, and validation errors propagate. Consumed records are not automatically retried, and errors are not automatically recovered.
 - `surrogateescape` preserves undecodable bytes but does not repair them. Validate these values before sending them to a database. Already stored `�` requires separate validation.
 - Input is not loaded in full, but oversized records can increase memory usage. Do not indiscriminately increase the CSV parser's field size limit.
+
+## Read range
+
+`offset` is the number of records to skip, and `limit` is the maximum number of records to read with `row()` and `rows()`. You can process part of a file without counting records yourself or reading records to discard with an empty Validator.
+
+### Configuration
+
+Set the range only on the `CSV` constructor and `open()`. `row()` and `rows()` take no range arguments.
+
+| Location | Arguments | Meaning |
+| --- | --- | --- |
+| Constructor | `offset=0`, `limit=None` | Default range for every `open()`. `limit=None` means no limit |
+| `open()` | `offset=None`, `limit=None` | Applies to this open only. Omitted or `None` uses the constructor value |
+
+- Values are non-negative integers. Non-integers and `True`/`False` raise `TypeError`; negative values raise `ValueError`. `open()` values are checked before the file is opened.
+- `offset` and `limit` are overridden independently. For example, a constructor `limit=100` with `open(path, offset=200)` reads with `offset=200, limit=100`.
+- `None` on `open()` means the constructor value, so a constructor `limit` cannot be removed on `open()`. If some files must be read without a limit, do not set `limit` on the constructor; set it on each `open()` instead.
+- Counting restarts on every `open()`. No range or progress from a previous open remains.
+
+### Record positions
+
+Positions start at 0. The unit is a logical record, not a physical line, so a record with a newline inside a quoted field counts once. csvd2c does not decide whether the first record is a header. A header read by `open()` with a header Validator is not counted; otherwise the first record of the file is position 0.
+
+| File line | Content | With header Validator | Without header Validator |
+| --- | --- | --- | --- |
+| 1 | `id,name` | Header (not counted) | 0 |
+| 2 | `1,Kim` | 0 | 1 |
+| 3 | `2,Lee` | 1 | 2 |
+
+### Reading flow
+
+Each `row()` call, and each record requested by `rows()`, is processed in this order:
+
+```mermaid
+flowchart TD
+  A["Record requested"] --> B{"limit reached?"}
+  B -- Yes --> C["End: row() raises StopIteration, rows() stops"]
+  B -- No --> D{"offset records left to skip?"}
+  D -- Yes --> E["Read a record and discard it without validation"] --> D
+  D -- No --> F["Read a record, use 1 of the limit"]
+  F --> G["Row Validator → column Validators"]
+  G --> H["Return a list or raise a validation Error"]
+```
+
+- The offset records are read and discarded on the first record request. `open()` does not read them. Skipped records are not validated by row or column Validators, but decoding and parsing errors propagate because the record boundary cannot be determined. An offset larger than the number of records ends reading immediately.
+- The limit counts records read, not successful records. Records that fail row or column validation count as one each. Decoding or parsing errors that yield no record are not counted.
+- After the limit is reached, the next record is not read, so a parsing error in that record is not raised. `limit=0` reads no record, including the offset records.
+- `row()` and `rows()` share the same range state. Mixed calls, or calling `rows()` again after a validation failure, continue within the same range.
+- Without a range, reading continues to the end of the file as before.
+
+### Example
+
+This example creates a temporary file and reads two records at a time. The third record fails validation because its name is empty, but it still counts toward the limit.
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from csvd2c import CSV
+from csvd2c.column import (
+  Error as ColumnError,
+  Validator as ColumnValidator,
+)
+from csvd2c.column.patterns import Required
+from csvd2c.header import Validator as HeaderValidator
+
+with TemporaryDirectory() as directory:
+  path = Path(directory) / "input.csv"
+  path.write_bytes(b"id,name\n1,Kim\n2,Lee\n3,\n4,Park\n5,Choi\n")
+  csv = CSV(
+    header=HeaderValidator(),
+    column={"name": ColumnValidator(Required())},
+    limit=2,
+  )
+  for offset in (0, 2, 4):
+    with csv.open(str(path), offset=offset):
+      page = []
+      while True:
+        try:
+          page.append(csv.row())
+        except ColumnError as error:
+          print("rejected line", error.row)
+        except StopIteration:
+          break
+      print(offset, page)
+```
+
+Expected output:
+
+```text
+0 [['1', 'Kim'], ['2', 'Lee']]
+rejected line 4
+2 [['4', 'Park']]
+4 [['5', 'Choi']]
+```
+
+See [read_range.py](../samples/read_range.py) for a complete runnable sample.
 
 ## Header validation
 

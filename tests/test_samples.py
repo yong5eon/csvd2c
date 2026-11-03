@@ -21,7 +21,7 @@ class SampleTests(TestCase):
 	def test_all_samples(self) -> None:
 		root: Path = Path(__file__).resolve().parents[1]
 		samples: list[Path] = sorted((root / 'samples').glob('*.py'))
-		self.assertEqual(len(samples), 23)
+		self.assertEqual(len(samples), 24)
 		env: dict[str, str] = dict(environ)
 		env['PYTHONIOENCODING'] = 'utf-8'
 		with TemporaryDirectory() as directory:

@@ -56,7 +56,16 @@ class CSV(object):
 				Tuple[ColumnValidator, ...],
 			]
 		] = None,
+		offset: int = 0,
+		limit: Optional[int] = None,
 	) -> None:
+		"""
+		Configure decoding, parsing, validators, and the default read range.
+
+		offset is the number of records to skip and limit is the maximum
+		number of records to read with row() and rows(); None means no limit.
+		A header read by a header Validator is not counted.
+		"""
 		self.encoding = encoding
 		self.errors = errors
 		self.newline = newline
@@ -65,12 +74,19 @@ class CSV(object):
 		self.strict = strict
 		self.check_header(header)
 		self.check_validators(row, column)
+		if offset is None:
+			raise TypeError('offset must be a non-negative integer')
+		self.check_range(offset, limit)
 		self.header_validator = header
 		self.row_validator = row
 		self.column_validators = column
+		self.offset = offset
+		self.limit = limit
 		self.reader: Optional['Reader'] = None
 		self.text: Optional[TextIOWrapper] = None
 		self.header_data: Optional[List[str]] = None
+		self.skip: int = 0
+		self.remaining: Optional[int] = None
 		return
 
 	@contextmanager
@@ -79,6 +95,8 @@ class CSV(object):
 		path: str,
 		mode: str = 'rb',
 		header: Optional[HeaderValidator] = None,
+		offset: Optional[int] = None,
+		limit: Optional[int] = None,
 	) -> Generator['CSV', None, None]:
 		"""
 		Open a file for reading and close it on context exit.
@@ -89,6 +107,10 @@ class CSV(object):
 		None uses the constructor setting. When a header Validator applies,
 		the first record is read and validated before the context is entered;
 		a header Error closes the file. Otherwise no record is consumed.
+		offset and limit override the constructor read range for this open
+		only; None uses the constructor setting, so a constructor limit cannot
+		be removed here. The range is counted from the first record after the
+		validated header, or from the first record without header validation.
 		Nested opens on the same CSV instance are rejected. File, decoding,
 		and parsing errors propagate.
 		"""
@@ -97,7 +119,10 @@ class CSV(object):
 		if mode not in ('rb', 'r', 'rt'):
 			raise ValueError('mode must be rb, r, or rt')
 		self.check_header(header)
+		self.check_range(offset, limit)
 		validator: Optional[HeaderValidator] = self.header_validator if header is None else header
+		skip: int = self.offset if offset is None else offset
+		remaining: Optional[int] = self.limit if limit is None else limit
 
 		with ExitStack() as stack:
 			if mode == 'rb':
@@ -127,6 +152,8 @@ class CSV(object):
 				strict=self.strict,
 			)
 			self.header_data = None
+			self.skip = skip
+			self.remaining = remaining
 			self.text = text
 			try:
 				if validator is not None:
@@ -139,7 +166,7 @@ class CSV(object):
 
 	def close(self) -> None:
 		"""
-		Close the current stream and invalidate its readers and header.
+		Close the current stream and invalidate its readers, header, and range.
 
 		Repeated calls are safe. Stream closing errors propagate, and context
 		exit also closes the stream automatically.
@@ -152,6 +179,8 @@ class CSV(object):
 			self.text = None
 			self.reader = None
 			self.header_data = None
+			self.skip = 0
+			self.remaining = None
 		return
 
 	def header(self) -> Optional[List[str]]:
@@ -179,13 +208,14 @@ class CSV(object):
 		"""
 		Consume and validate one record, raising StopIteration at EOF.
 
+		StopIteration is also raised when the read range limit is reached.
 		None uses the constructor setting. Overrides apply only to this call.
 		Validation failures propagate after the record has been consumed.
 		"""
 		source: 'Reader' = self.require_reader()
 		row_validator, column_validators = self.resolve_validators(row, column)
 		indices: List[Tuple[int, Union[int, str], ColumnValidator]] = self.column_indices(column_validators)
-		record: List[str] = next(source)
+		record: List[str] = self.read_record(source)
 		line: int = source.line_num
 		return self.validate(record, line, row_validator, indices)
 
@@ -202,6 +232,8 @@ class CSV(object):
 	) -> Generator[List[str], None, None]:
 		"""
 		Stream remaining records without accumulating results in memory.
+
+		Records in the read range are shared with row() and stop at its limit.
 
 		Overrides are captured when this method is called. The iterator must
 		be consumed inside the open context and cannot be reused after the
@@ -223,6 +255,27 @@ class CSV(object):
 			raise HeaderError('The file has no record to use as a header', None) from None
 		return list(validator(record))
 
+	def read_record(
+		self,
+		source: 'Reader',
+	) -> List[str]:
+		"""
+		Read the next record in the read range, raising StopIteration outside it.
+
+		The limit is checked before skipping so that limit 0 reads nothing.
+		Skipped records are not validated, and decoding or parsing errors
+		propagate. A returned record counts toward the limit before validation.
+		"""
+		if self.remaining == 0:
+			raise StopIteration
+		while self.skip > 0:
+			next(source)
+			self.skip -= 1
+		record: List[str] = next(source)
+		if self.remaining is not None:
+			self.remaining -= 1
+		return record
+
 	def require_reader(self) -> 'Reader':
 		if self.reader is None:
 			raise RuntimeError('Open the CSV file before reading records')
@@ -234,6 +287,29 @@ class CSV(object):
 	) -> None:
 		if header is not None and not isinstance(header, HeaderValidator):
 			raise TypeError('header must be a header Validator or None')
+		return
+
+	def check_range(
+		self,
+		offset: Optional[int],
+		limit: Optional[int],
+	) -> None:
+		for name, value in (
+			(
+				'offset',
+				offset,
+			),
+			(
+				'limit',
+				limit,
+			),
+		):
+			if value is None:
+				continue
+			if isinstance(value, bool) or not isinstance(value, int):
+				raise TypeError('{} must be a non-negative integer or None'.format(name))
+			if value < 0:
+				raise ValueError('{} must be a non-negative integer or None'.format(name))
 		return
 
 	def check_validators(
@@ -359,7 +435,7 @@ class CSV(object):
 			if self.reader is not source:
 				raise RuntimeError('The CSV context has changed')
 			try:
-				record: List[str] = next(source)
+				record: List[str] = self.read_record(source)
 				line: int = source.line_num
 			except StopIteration:
 				return

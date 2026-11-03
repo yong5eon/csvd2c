@@ -6,6 +6,7 @@ csvd2c stands for **CSV Dirty to Clean**. It provides streaming reads and compos
 
 - Read records incrementally as lists.
 - Validate the header record with an injected header Validator.
+- Read a range of records with `offset` and `limit` on the constructor or `open()`.
 - Validate and transform row structures and individual column values.
 - Normalize whitespace, Unicode, dates, numbers, and currency prefixes.
 - Check encoding candidates against a file sample and recover preserved field bytes conditionally.

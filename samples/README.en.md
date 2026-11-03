@@ -2,7 +2,7 @@
 
 [한국어](./README.md)
 
-These 23 standalone examples use the public csvd2c API, create small synthetic inputs, and check results with `assert`. They do not use external services, databases, or customer data.
+These 24 standalone examples use the public csvd2c API, create small synthetic inputs, and check results with `assert`. They do not use external services, databases, or customer data.
 
 ## Running
 
@@ -39,6 +39,7 @@ Direct row calls supply a line number; direct column calls supply a line number 
 | [read_overrides_close.py](./read_overrides_close.py) | Named/positional column validation, per-call overrides, `None` versus `{}`, closing and reopening |
 | [stream_export.py](./stream_export.py) | UTF-8 CSV output with `csv.writer`, without accumulating the input |
 | [bounded_batches.py](./bounded_batches.py) | Batches of at most 10 records, final partial batch, integration point for existing ETL storage |
+| [read_range.py](./read_range.py) | Reading pages with `offset` on `open()`, constructor `limit`, rejected records counted toward the limit, a quoted-newline record counted once, `limit=0`, position 0 without a header Validator |
 
 ### Row structures and error handling
 
