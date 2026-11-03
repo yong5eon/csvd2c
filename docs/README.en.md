@@ -271,7 +271,7 @@ Validation failures are reported as exceptions:
 | `csvd2c.row.Error` | `csvd2c.Error` | `message, row, value: List[str]` | `message`, `row`, `value` |
 | `csvd2c.column.Error` | `csvd2c.Error` | `message, row, column, value: str` | `message`, `row`, `column`, `value` |
 
-`value` is the input of the failing Pattern. If `Strip` transforms `"   "` into `""` and `Required` fails, `value` is `""`. File-original and chain-start snapshots are not retained. Column validation uses the row after row transformations, without tracing fields back to earlier positions. Raise or subclass `csvd2c.Error` for failures without an identifiable position.
+`value` is the input of the failing Pattern. If `Strip` transforms `"   "` into `""` and `Required` fails, `value` is `""`. Error objects do not retain file-original or chain-start snapshots. Use CSV's [raw()](#raw-record-access) for all fields before validation. Column validation uses the row after row transformations, without tracing fields back to earlier positions. Raise or subclass `csvd2c.Error` for failures without an identifiable position.
 
 ```python
 from csvd2c.column import Error, Validator
@@ -293,12 +293,78 @@ To log failed records and continue, inject Validators directly into CSV, catch o
 
 ```mermaid
 flowchart LR
-  CSV["CSV: record and final line"] --> Row["Row Validator: value and line"]
+  CSV["CSV: parsed record and final line"] --> Snapshot["Copy fields before validation"]
+  Snapshot --> Row["Row Validator: value and line"]
   Row --> Col["Column Validator: changed value and position"]
   Col --> Pattern["Pattern: current input"]
   Pattern -- failure --> Raise["raise row.Error / column.Error"]
   Raise --> Caller["Caller except: log or skip"]
 ```
+
+## Raw record access
+
+`CSV.raw() -> Optional[List[str]]` returns the **pre-validation fields** from the most recent data read attempt. Decoding and CSV parsing have completed, but row and column Validators have not yet run on these values. The record is available after successful validation and after `RowError` or `ColumnError`. Error `value` attributes and Pattern signatures are unchanged.
+
+Each call returns a new list, so modifying it does not change the stored record or later results. Modifying a successful `row()` result or changing the input list inside a Pattern does not affect the snapshot either. `raw()` does not read or validate records. An empty record `[]` is distinct from `None`, which means no record is available.
+
+| Event | `raw()` result |
+| --- | --- |
+| Construction or open before reading data | `None` |
+| A data record read by `row()` or `rows()`, whether validation succeeds or fails | A copy of its pre-validation fields |
+| The next read reaches EOF or the limit, or fails during parsing or decoding | `None` |
+| `close()`, context exit, or reopening | `None` |
+
+Headers consumed by a header Validator on `open()` and records skipped by offset are not stored. Calling `header()` leaves the current raw record unchanged. Without a header Validator, the first record is ordinary data.
+
+`row()` and `rows()` share the raw record state. Creating a `rows()` generator alone does not change it. Read the snapshot inside the loop for each record. The last record remains available just after it is returned, but normal exhaustion, such as `list(csv.rows())`, clears it when EOF or the limit is checked.
+
+When `rows()` propagates a validation exception, the failed snapshot remains available, but **the same generator terminates and cannot resume**. Use repeated `row()` calls to continue after failures, as below. Catch validation errors inside the open `with` context; outside it, closing the file has already cleared the snapshot.
+
+### Dump rejected fields as CSV
+
+Run this example with csvd2c installed. It creates temporary synthetic input, rejects a whitespace-only name, and writes it with matching delimiter and escape settings. It does not overwrite the input, and temporary files are cleaned up afterward.
+
+```python
+from csv import reader, writer
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from csvd2c import CSV
+from csvd2c.column import Error as ColumnError, Validator
+from csvd2c.column.patterns import Required, Strip
+from csvd2c.row import Error as RowError
+
+with TemporaryDirectory() as directory:
+  path = Path(directory) / "input.csv"
+  rejected = Path(directory) / "rejected.csv"
+  path.write_bytes(b'   \t"line one\nline two"\nok\tvalue\n')
+  csv = CSV(
+    delimiter="\t",
+    escapechar="\\",
+    column=(Validator(Strip(), Required()),),
+  )
+  with csv.open(str(path)), rejected.open("x", encoding="utf-8", newline="") as output:
+    dump = writer(output, delimiter=csv.delimiter, escapechar=csv.escapechar)
+    while True:
+      try:
+        record = csv.row()
+      except StopIteration:
+        break
+      except (RowError, ColumnError):
+        original = csv.raw()
+        assert original is not None
+        dump.writerow(original)
+      else:
+        print(record)
+  with rejected.open(encoding="utf-8", newline="") as saved:
+    fields = list(reader(saved, delimiter="\t", escapechar="\\"))
+  assert fields == [["   ", "line one\nline two"]]
+```
+
+This prints the accepted record `['ok', 'value']`. The rejected record retains its original spaces and embedded newline, rather than the empty string produced by `Strip`. See the [rejection sample](../samples/reject_records.py) for JSONL logging of raw fields alongside error positions and messages.
+
+The snapshot is not the file's line text or bytes. Writing with the same dialect's `csv.writer` and reading again preserves field values, but quoting and escape notation may differ from the original. Choose encoding, error handling, and newline settings appropriate for the strings being saved. Parsing or decoding failures produce no complete record and leave `None`; there is no automatic recovery or fallback to the previous record.
+
+This feature requires Python 3.10 or later. The minimum was raised because Python 3.9's standard writer can lose escape characters within fields, as documented in [CPython issue #56387](https://github.com/python/cpython/issues/56387). Upgrade Python 3.9 environments before using this release. No custom writer workaround was added to csvd2c.
 
 ## Row structure Patterns
 

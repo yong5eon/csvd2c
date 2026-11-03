@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from typing import (
 	Dict,
 	List,
+	Optional,
 	Union,
 )
 from csvd2c import CSV
@@ -37,12 +38,12 @@ HEADER = (
 
 def main() -> None:
 	"""
-	Inject validators into CSV, log rejected records, and resume with the next record.
+	Log validation errors and pre-validation fields, then read the next record.
 	"""
 	with TemporaryDirectory() as directory:
 		path: Path = Path(directory) / 'input.csv'
 		rejected_path: Path = Path(directory) / 'rejected.jsonl'
-		path.write_text('name,date\nKim,1-10\n\nname,date\nLee\nPark,23-Feb\n', encoding='utf-8')
+		path.write_text('name,date\nKim,1-10\n\nname,date\nLee\n   ,bad\nPark,23-Feb\n', encoding='utf-8')
 		csv: CSV = CSV(
 			header=HeaderValidator(),
 			row=RowValidator(
@@ -65,9 +66,12 @@ def main() -> None:
 				except StopIteration:
 					break
 				except (RowError, ColumnError) as error:
+					raw: Optional[List[str]] = csv.raw()
+					assert raw is not None
 					item: Dict[str, Union[int, str, List[str]]] = {
 						'row': error.row,
 						'value': error.value,
+						'raw': raw,
 						'message': error.message,
 					}
 					if isinstance(error, ColumnError):
@@ -78,12 +82,19 @@ def main() -> None:
 					print('Accepted:', result)
 					accepted += 1
 		assert accepted == 2
-		assert rejected == 3
+		assert rejected == 4
 		with rejected_path.open(encoding='utf-8') as output:
 			for line in output:
 				item = loads(line)
 				assert isinstance(item, dict)
 				assert 'row' in item and 'value' in item and 'message' in item
+				assert isinstance(item['raw'], list)
+				if 'column' in item:
+					assert item['value'] == ''
+					assert item['raw'] == [
+						'   ',
+						'bad',
+					]
 				print('Rejected:', item)
 	return
 

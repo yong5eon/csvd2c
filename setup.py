@@ -40,7 +40,6 @@ setup(
 	package_data={
 	},
 	classifiers=[
-		'Programming Language :: Python :: 3.9',
 		'Programming Language :: Python :: 3.10',
 		'Programming Language :: Python :: 3.11',
 		'Programming Language :: Python :: 3.12',
@@ -49,5 +48,5 @@ setup(
 	],
 	extras_require={
 	},
-	python_requires='>=3.9'
+	python_requires='>=3.10'
 )

@@ -29,7 +29,7 @@ class SampleTests(TestCase):
 				with self.subTest(sample=sample.name):
 					parse(sample.read_text(encoding='utf-8'), feature_version=(
 						3,
-						9,
+						10,
 					))
 					result: CompletedProcess[str] = run(
 						[
