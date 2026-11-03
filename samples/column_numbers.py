@@ -1,5 +1,8 @@
 from decimal import Decimal
-from csvd2c.column import Validator
+from csvd2c.column import (
+	Error,
+	Validator,
+)
 from csvd2c.column.patterns import (
 	Number,
 	Range,
@@ -12,10 +15,10 @@ def main() -> None:
 	Use explicit grouping and decimal separators with precise numeric bounds.
 	"""
 	amount: Validator = Validator(Strip(), Number(thousands=','), Range(0, Decimal('1000000')))
-	assert amount(' 1,234.500 ') == '1234.5'
-	assert Number(decimal=',', thousands='.')('-1.234,50') == '-1234.5'
-	assert Number()('-0.000') == '0'
-	assert Number()('123456789012345678901234567890.00100') == '123456789012345678901234567890.001'
+	assert amount(' 1,234.500 ', 1, 0) == '1234.5'
+	assert Number(decimal=',', thousands='.')('-1.234,50', 1, 0) == '-1234.5'
+	assert Number()('-0.000', 1, 0) == '0'
+	assert Number()('123456789012345678901234567890.00100', 1, 0) == '123456789012345678901234567890.001'
 	for value in (
 		'1,23',
 		'NaN',
@@ -24,8 +27,8 @@ def main() -> None:
 		'1,000,001',
 	):
 		try:
-			amount(value)
-		except ValueError as error:
+			amount(value, 1, 0)
+		except Error as error:
 			print('Rejected amount:', value, error)
 		else:
 			raise AssertionError('Invalid amount was accepted')

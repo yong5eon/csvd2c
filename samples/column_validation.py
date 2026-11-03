@@ -1,4 +1,7 @@
-from csvd2c.column import Validator
+from csvd2c.column import (
+	Error,
+	Validator,
+)
 from csvd2c.column.patterns import (
 	Choices,
 	Default,
@@ -18,10 +21,10 @@ def main() -> None:
 	Validate IDs and normalize exact status mappings and empty values.
 	"""
 	identifier: Validator = Validator(Strip(), Required(), Length(3, 8), Regex(r'[A-Z][0-9]+'))
-	assert identifier(' A123 ') == 'A123'
+	assert identifier(' A123 ', 1, 0) == 'A123'
 	try:
-		identifier('invalid')
-	except ValueError as error:
+		identifier('invalid', 1, 0)
+	except Error as error:
 		print('Rejected ID:', error)
 	else:
 		raise AssertionError('Expected invalid ID')
@@ -35,8 +38,8 @@ def main() -> None:
 		}),
 		Choices('A', 'U'),
 	)
-	assert status(' active ') == 'A'
-	assert status(' ') == 'U'
+	assert status(' active ', 1, 0) == 'A'
+	assert status(' ', 1, 0) == 'U'
 	print('Validated ID and mapped statuses')
 	return
 

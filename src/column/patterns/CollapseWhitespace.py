@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from typing import Union
+
 from re import compile
 from ..Pattern import Pattern
 
@@ -13,5 +15,10 @@ class CollapseWhitespace(Pattern):
 		self.expression = compile(r'\s+')
 		return
 
-	def __call__(self, col: str) -> str:
-		return self.expression.sub(' ', col)
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		return self.expression.sub(' ', value)

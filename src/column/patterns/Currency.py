@@ -4,6 +4,7 @@ from re import compile
 from typing import (
 	Mapping,
 	Optional,
+	Union,
 )
 from ..Pattern import Pattern
 from ..Error import Error
@@ -39,11 +40,7 @@ class Currency(Pattern):
 	def __init__(
 		self,
 		mapping: Optional[Mapping[str, str]] = None,
-		*,
-		error: Optional[Error] = None,
 	) -> None:
-		if error is not None and not isinstance(error, Error):
-			raise TypeError('error must be a column Error instance or None')
 		aliases: dict[str, str] = dict(CURRENCY_ALIASES)
 		if mapping is not None:
 			for prefix, code in mapping.items():
@@ -65,11 +62,15 @@ class Currency(Pattern):
 			'JP': 'JPY',
 			'CN': 'CNY',
 		}
-		self.error = error
 		return
 
-	def __call__(self, col: str) -> str:
-		text: str = col.strip()
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		text: str = value.strip()
 		code: Optional[str] = None
 		amount: str = ''
 		for prefix, candidate in self.prefixes.get(text[:1], []):
@@ -89,7 +90,5 @@ class Currency(Pattern):
 			or '\ufffd' in amount
 			or any('\ud800' <= char <= '\udfff' for char in amount)
 		):
-			if self.error is not None:
-				return self.error(col)
-			raise ValueError('Value has an unknown currency prefix, missing amount, or damaged amount')
+			raise Error('Value has an unknown currency prefix, missing amount, or damaged amount', row, column, value)
 		return '{} {}'.format(code, amount)

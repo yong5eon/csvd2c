@@ -60,15 +60,58 @@ with CSV(
 - `surrogateescape` preserves undecodable bytes but does not repair them. Validate these values before sending them to a database. Already stored `�` requires separate validation.
 - Input is not loaded in full, but oversized records can increase memory usage. Do not indiscriminately increase the CSV parser's field size limit.
 
+## Validation positions and error contracts
+
+Row `Pattern` and `Validator` use `__call__(value: List[str], row: int) -> List[str]`; column implementations use `__call__(value: str, row: int, column: Union[int, str]) -> str`, omitting `self` here. Direct calls require position arguments. Existing one-argument custom Patterns must be migrated to these signatures.
+
+Injecting Validators into CSV supplies positions automatically. Line numbers are 1-based physical file lines, captured after reading the entire record. A quoted record spanning lines 2–3 reports line 3, not the precise offending character or a logical record number. Tuple column validators receive a 0-based index; named validators receive the configured name. Output `header=` does not change the identifier.
+
+Validation failures are reported as exceptions:
+
+| Class | Base | Constructor | Attributes |
+| --- | --- | --- | --- |
+| `csvd2c.Error` | `Exception` | `message` | `message` |
+| `csvd2c.row.Error` | `csvd2c.Error` | `message, row, value: List[str]` | `message`, `row`, `value` |
+| `csvd2c.column.Error` | `csvd2c.Error` | `message, row, column, value: str` | `message`, `row`, `column`, `value` |
+
+`value` is the input of the failing Pattern. If `Strip` transforms `"   "` into `""` and `Required` fails, `value` is `""`. File-original and chain-start snapshots are not retained. Column validation uses the row after row transformations, without tracing fields back to earlier positions. Raise or subclass `csvd2c.Error` for failures without an identifiable position.
+
+```python
+from csvd2c.column import Error, Validator
+from csvd2c.column.patterns import Required, Strip
+
+validator = Validator(Strip(), Required())
+try:
+  validator("   ", 2, "name")
+except Error as error:
+  assert (error.row, error.column, error.value) == (2, "name", "")
+  assert error.message == "A nonempty value is required"
+```
+
+The per-Pattern `error=` arguments and callable Error handlers have been removed. Callers log, recover, or skip with `try`/`except`. Data validation failures are no longer `ValueError`; replace `except ValueError` with `csvd2c.row.Error`, `csvd2c.column.Error`, or the common `csvd2c.Error`. Configuration errors still raise `TypeError` or `ValueError` immediately. If a record lacks a position selected by a column Validator after row validation, `csvd2c.row.Error` is raised.
+
+Custom Patterns may raise these classes or their subclasses on failure, or return values without raising.
+
+To log failed records and continue, inject Validators directly into CSV, catch only validation errors, and call `row()` again, as in the [rejection sample](../samples/reject_records.py). The same `rows()` generator cannot resume after an exception. Parsing and file decoding failures are not validation errors; positions and source text are not guessed.
+
+```mermaid
+flowchart LR
+  CSV["CSV: record and final line"] --> Row["Row Validator: value and line"]
+  Row --> Col["Column Validator: changed value and position"]
+  Col --> Pattern["Pattern: current input"]
+  Pattern -- failure --> Raise["raise row.Error / column.Error"]
+  Raise --> Caller["Caller except: log or skip"]
+```
+
 ## Row structure Patterns
 
 Available row Patterns are imported from `csvd2c.row.patterns`:
 
-- `Length(count)`: require exactly count columns; mismatch raises `ValueError`.
+- `Length(count)`: require exactly count columns; mismatch raises row Error.
 - `Truncate(count)`: remove trailing excess columns; keep all values when count or fewer columns exist.
 - `Pad(count, value="")`: append the specified string for missing columns; keep all values when count or more columns exist.
 - `Insert(index, value)`: insert a string using Python `list.insert`, including index clipping.
-- `Remove(index)`: remove one column using Python indexing; out-of-range indices invoke Error or raise `ValueError`.
+- `Remove(index)`: remove one column using Python indexing; out-of-range indices raise row Error.
 - `Reorder(*indices)`: require every column exactly once; reject missing, duplicate, and out-of-range indices.
 - `Slice(start=None, stop=None, step=None)`: Python slicing with clipping and negative indices/steps; reject zero step.
 - `Merge(start, stop, sep=",")`: merge a nonempty, in-range slice with exclusive stop.
@@ -78,9 +121,7 @@ Available row Patterns are imported from `csvd2c.row.patterns`:
 - `RejectEmpty()`: reject empty records or records consisting entirely of empty strings, not whitespace.
 - `RejectHeader(*names)`: reject exact header repetitions, including order.
 
-Pattern defines only the callable contract, with no constructor or shared rejection method. Length, Remove, Reorder, Merge, Split, Replace, IfLength, RejectEmpty, and RejectHeader implement optional `error=` directly. Data failures call the handler with a row copy or raise ValueError without it. Configuration errors remain immediate. Insert, Slice, Pad, and Truncate do not accept error handlers. No automatic skipping or replacement revalidation occurs.
-
-`column.Error.__call__(col)` returns a replacement string or raises. Custom column Patterns define their own constructors and invoke handlers directly when needed. Neither Pattern nor Validator automatically intercepts exceptions.
+On data failure, Length, Remove, Reorder, Merge, Split, Replace, RejectEmpty, and RejectHeader raise `csvd2c.row.Error` carrying the Pattern's input row and line number. Configuration errors still raise `TypeError` or `ValueError` immediately. No automatic skipping occurs. Insert, Slice, Pad, and Truncate have no data failures.
 
 ```python
 from csvd2c.row import Validator
@@ -96,7 +137,7 @@ validator = Validator(
 )
 ```
 
-Nonmatching counts pass unchanged. IfLength can route nested ValueErrors to its own handler. Compose a final Length check when replacement results need structural validation.
+Nonmatching counts pass unchanged. Nested exceptions propagate. Compose a final Length check when needed.
 
 Transformations return new lists; `Length` returns the original list unchanged. Negative indices are supported, and `Reorder` checks duplicates after normalization. Callers specify correction positions and values without automatic inference.
 
@@ -111,7 +152,7 @@ validator = Validator(
   Remove(1),
   Length(2),
 )
-result: list[str] = validator(["Kim", "unused", "1-10"])
+result: list[str] = validator(["Kim", "unused", "1-10"], 1)
 ```
 
 Use this example only when the second column is confirmed to be unwanted.
@@ -137,7 +178,7 @@ Counts must be nonnegative integers and padding values must be strings. Both Pat
 
 ## Column Patterns
 
-Import from `csvd2c.column.patterns`. All new Patterns accept and return strings, including normalized dates and numbers. Configuration errors are immediate. Validation implementations directly call optional column Error handlers with the original string; replacement results are not automatically revalidated.
+Import from `csvd2c.column.patterns`. Patterns accept a string, line number, and column identifier and return a string, including normalized dates and numbers. Configuration errors are immediate. Data validation failures raise `csvd2c.column.Error` carrying the Pattern's input string and position.
 
 | Pattern | Behavior |
 | --- | --- |
@@ -167,7 +208,7 @@ Import from `csvd2c.column.patterns`. All new Patterns accept and return strings
 | `RecoverEncoding(source, read_encoding="utf-8")` | Restore field bytes with surrogateescape and strictly decode the specified source |
 | `TryRecoverEncoding(source, read_encoding="utf-8")` | Try only marked fields; preserve the input on codec failure |
 
-Required, Length, Regex, Choices, the three rejection checks, Map, Date, Number, Range, and Recode accept optional `error=`. Conditional Patterns propagate nested exceptions.
+Required, Length, Regex, Choices, the three rejection checks, Map, Date, Number, Range, Currency, Recode, and RecoverEncoding raise `csvd2c.column.Error` on failure. Conditional Patterns propagate nested exceptions.
 
 ```python
 from csvd2c.column import Validator
@@ -212,7 +253,7 @@ csv = CSV(
 )
 ```
 
-RecoverEncoding re-encodes using the original reading codec with surrogateescape, then strictly decodes source. Failures call optional `error=` or raise ValueError. Apply before stripping, replacement, or Unicode normalization. Results are strings; encode UTF-8 at output. Missing markers do not prove correctness, and successful source decoding does not identify its actual encoding. This cannot repair mixed encodings inside a field, already replaced characters, or information removed by BOM/newline transformations.
+RecoverEncoding re-encodes using the original reading codec with surrogateescape, then strictly decodes source. Failures raise `csvd2c.column.Error`. Apply before stripping, replacement, or Unicode normalization. Results are strings; encode UTF-8 at output. Missing markers do not prove correctness, and successful source decoding does not identify its actual encoding. This cannot repair mixed encodings inside a field, already replaced characters, or information removed by BOM/newline transformations.
 
 Currency validates the 178 codes in the [SIX ISO 4217 List One](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml) snapshot published 2026-09-17, including fund, metal, testing, and no-currency codes. It performs no runtime network requests. Withdrawn codes are excluded; future changes require updating the snapshot.
 
@@ -222,7 +263,7 @@ Immutable module constants `CURRENCY_CODES` (code set) and `CURRENCY_ALIASES` (p
 from csvd2c.column.patterns import Currency
 
 currency = Currency()
-result: str = currency("CA$1,000")  # CAD 1,000
+result: str = currency("CA$1,000", 1, "amount")  # CAD 1,000
 custom = Currency({"C$": "CAD"})
 ```
 
@@ -230,7 +271,7 @@ custom = Currency({"C$": "CAD"})
 - Country aliases include CA$, AU$, US$, NZ$, HK$, SG$, JP¥, CN¥, CA＄, AU＄, US＄, JP￥, and CN￥. CA/AU/JP/CN followed only by replacement characters or surrogate code points maps to CAD/AUD/JPY/CNY. This identifies currency from the prefix rather than restoring lost symbols.
 - Custom mappings are copied, case-sensitive prefix-to-current-code mappings. They override aliases but cannot redirect existing ISO codes. Longer aliases take precedence.
 - `US Dollar 100`, `미국 달러 100`, and `日本円 100` normalize to USD, USD, and JPY respectively. Aliases are input interpretation policies, not part of the ISO code standard.
-- Output is `CODE amount`, trimming only amount boundaries. The amount must begin with an ASCII digit or `+`, `-`, `.`, `,`, or `(`. Numerical validity is not checked. Unknown prefixes, absent amounts, and damage in amounts call optional Error or raise ValueError. Ordinary question marks are not inferred as damaged symbols.
+- Output is `CODE amount`, trimming only amount boundaries. The amount must begin with an ASCII digit or `+`, `-`, `.`, `,`, or `(`. Numerical validity is not checked. Unknown prefixes, absent amounts, and damage in amounts raise `csvd2c.column.Error`. Ordinary question marks are not inferred as damaged symbols.
 - Number cannot process the entire Currency result directly; separate the code and amount before numeric normalization.
 
 - Date requires exactly one year (%Y or %y), month (%m, %b, or %B), and day (%d). Only these directives and literal %% are supported. Years are not inferred. %y follows Python's century rule. Month names depend on the process locale, which the library does not change.
@@ -252,7 +293,7 @@ Callers choose the candidate order and final damage checks. See [column_recover_
 - Preserve original data and distinguish corrections and their reasons.
 - Do not guess ambiguous dates or damaged text.
 - Distinguish decoding, CSV parsing, structural, and column validation failures.
-- Callers implement classification and storage of accepted, corrected, and review-required data. [reject_records.py](../samples/reject_records.py) demonstrates logging rejected originals and reasons separately.
+- Callers implement classification and storage of accepted, corrected, and review-required data. [reject_records.py](../samples/reject_records.py) demonstrates logging rejected values and reasons separately.
 
 ## License
 

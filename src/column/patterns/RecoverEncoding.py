@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from codecs import lookup
-from typing import Optional
+from typing import Union
 from ..Pattern import Pattern
 from ..Error import Error
 
@@ -22,7 +22,6 @@ class RecoverEncoding(Pattern):
 		source: str,
 		*,
 		read_encoding: str = 'utf-8',
-		error: Optional[Error] = None,
 	) -> None:
 		for encoding in (
 			source,
@@ -31,18 +30,18 @@ class RecoverEncoding(Pattern):
 			codec = lookup(encoding)
 			if not isinstance(codec.decode(b'', 'strict')[0], str):
 				raise ValueError('RecoverEncoding requires text encodings')
-		if error is not None and not isinstance(error, Error):
-			raise TypeError('error must be a column Error instance or None')
 		self.source = source
 		self.read_encoding = read_encoding
-		self.error = error
 		return
 
-	def __call__(self, col: str) -> str:
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
 		try:
-			raw: bytes = col.encode(self.read_encoding, errors='surrogateescape')
+			raw: bytes = value.encode(self.read_encoding, errors='surrogateescape')
 			return raw.decode(self.source, errors='strict')
-		except UnicodeError as cause:
-			if self.error is not None:
-				return self.error(col)
-			raise ValueError('Field bytes cannot be recovered with the configured encodings') from cause
+		except UnicodeError:
+			raise Error('Field bytes cannot be recovered with the configured encodings', row, column, value)

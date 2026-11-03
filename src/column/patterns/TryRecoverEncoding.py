@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from typing import Union
+
 from .RecoverEncoding import RecoverEncoding
 
 
@@ -75,12 +77,17 @@ class TryRecoverEncoding(RecoverEncoding):
 		super().__init__(source, read_encoding=read_encoding)
 		return
 
-	def __call__(self, col: str) -> str:
-		if not any('\udc80' <= char <= '\udcff' for char in col):
-			return col
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		if not any('\udc80' <= char <= '\udcff' for char in value):
+			return value
 		try:
-			raw: bytes = col.encode(self.read_encoding, errors='surrogateescape')
+			raw: bytes = value.encode(self.read_encoding, errors='surrogateescape')
 			return raw.decode(self.source, errors='strict')
 		except UnicodeError:
 			# A failed candidate deliberately leaves input intact for the next one.
-			return col
+			return value

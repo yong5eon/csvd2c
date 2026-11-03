@@ -50,6 +50,7 @@ from types import MappingProxyType
 from typing import (
 	FrozenSet,
 	Mapping,
+	Union,
 )
 
 # ISO 4217: SIX List One, published 2026-09-17.

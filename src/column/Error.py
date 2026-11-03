@@ -1,16 +1,30 @@
 # -*- coding: utf-8 -*-
 
-from abc import (
-	ABC,
-	abstractmethod,
+from typing import Union
+from ..Error import Error as BaseError
+
+__all__ = (
+	'Error',
 )
 
 
-class Error(ABC):
+class Error(BaseError):
 	"""
-	Handle rejected column data by returning a replacement or raising an exception.
+	Raised when a column Pattern rejects its input value.
+
+	value is the string passed to the failing Pattern, row is the last
+	physical line number of the record, and column is its index or name.
 	"""
 
-	@abstractmethod
-	def __call__(self, col: str) -> str:
-		raise NotImplementedError('Subclasses must implement this method')
+	def __init__(
+		self,
+		message: str,
+		row: int,
+		column: Union[int, str],
+		value: str,
+	) -> None:
+		super().__init__(message)
+		self.row = row
+		self.column = column
+		self.value = value
+		return

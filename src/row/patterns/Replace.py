@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from typing import (
-	List,
-	Optional,
-)
+from typing import List
 from ..Pattern import Pattern
 from ..Error import Error
 
@@ -17,12 +14,7 @@ class Replace(Pattern):
 		self,
 		index: int,
 		value: str,
-		*,
-		error: Optional[Error] = None,
 	) -> None:
-		if error is not None and not isinstance(error, Error):
-			raise TypeError('error must be a row Error instance or None')
-		self.error = error
 		if type(index) is not int:
 			raise TypeError('index must be an integer')
 		if not isinstance(value, str):
@@ -31,11 +23,13 @@ class Replace(Pattern):
 		self.value = value
 		return
 
-	def __call__(self, row: List[str]) -> List[str]:
-		if not -len(row) <= self.index < len(row):
-			if self.error is not None:
-				return self.error(row.copy())
-			raise ValueError('Replace column index is out of range')
-		result: List[str] = row.copy()
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
+		if not -len(value) <= self.index < len(value):
+			raise Error('Replace column index is out of range', row, value)
+		result: List[str] = value.copy()
 		result[self.index] = self.value
 		return result

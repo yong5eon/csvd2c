@@ -16,12 +16,12 @@ def main() -> None:
 		raise ValueError('Expected exactly two interval endpoints')
 	currency: Currency = Currency({'VN$': 'VND'})
 	number: Number = Number(thousands=',')
-	low_code, low_text = currency(parts[0]).split(' ', 1)
-	high_code, high_text = currency(parts[1]).split(' ', 1)
+	low_code, low_text = currency(parts[0], 1, 0).split(' ', 1)
+	high_code, high_text = currency(parts[1], 1, 0).split(' ', 1)
 	if low_code != high_code:
 		raise ValueError('Interval currencies differ')
-	low: str = number(low_text)
-	high: str = number(high_text)
+	low: str = number(low_text, 1, 0)
+	high: str = number(high_text, 1, 0)
 	if Decimal(low) > Decimal(high):
 		raise ValueError('Lower bound exceeds upper bound')
 	result: str = '{} {} - {} {}'.format(low_code, low, high_code, high)

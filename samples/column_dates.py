@@ -1,4 +1,7 @@
-from csvd2c.column import Validator
+from csvd2c.column import (
+	Error,
+	Validator,
+)
 from csvd2c.column.patterns import (
 	Date,
 	Strip,
@@ -13,7 +16,7 @@ def main() -> None:
 		Strip(),
 		Date('%Y-%m-%d', '%d/%m/%Y', output='%Y-%m-%d'),
 	)
-	assert validator(' 29/02/2024 ') == '2024-02-29'
+	assert validator(' 29/02/2024 ', 1, 0) == '2024-02-29'
 	for value in (
 		'1-10',
 		'Feb-23',
@@ -22,18 +25,18 @@ def main() -> None:
 		'2023-02-29',
 	):
 		try:
-			validator(value)
-		except ValueError as error:
+			validator(value, 1, 0)
+		except Error as error:
 			print('Needs review:', repr(value), error)
 		else:
 			raise AssertionError('Incomplete or invalid date was accepted')
 	try:
-		Date('%d/%m/%Y', '%m/%d/%Y')('01/02/2024')
-	except ValueError as error:
+		Date('%d/%m/%Y', '%m/%d/%Y')('01/02/2024', 1, 0)
+	except Error as error:
 		print('Ambiguous date:', error)
 	else:
 		raise AssertionError('Ambiguous date was accepted')
-	assert Date('%d/%m/%Y', '%m/%d/%Y')('02/02/2024') == '2024-02-02'
+	assert Date('%d/%m/%Y', '%m/%d/%Y')('02/02/2024', 1, 0) == '2024-02-02'
 	return
 
 

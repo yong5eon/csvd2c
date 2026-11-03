@@ -36,15 +36,15 @@ def main() -> None:
 			'VND 10,000,000',
 		),
 	):
-		assert currency(value) == expected
-		print(currency(value))
-	code, amount = currency('VN$ 10,000,000').split(' ', 1)
+		assert currency(value, 1, 0) == expected
+		print(currency(value, 1, 0))
+	code, amount = currency('VN$ 10,000,000', 1, 0).split(' ', 1)
 	assert code == 'VND'
-	assert Number(thousands=',')(amount) == '10000000'
+	assert Number(thousands=',')(amount, 1, 0) == '10000000'
 	assert 'VND' in CURRENCY_CODES
 	assert CURRENCY_ALIASES['VND'] == 'VND'
-	assert Currency()('$100') == 'USD 100'
-	assert Currency({'$': 'CAD'})('$100') == 'CAD 100'
+	assert Currency()('$100', 1, 0) == 'USD 100'
+	assert Currency({'$': 'CAD'})('$100', 1, 0) == 'CAD 100'
 	print('Custom aliases are provider policies; bare dollar defaults to USD')
 	return
 

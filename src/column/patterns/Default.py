@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from typing import Union
+
 from ..Pattern import Pattern
 
 
@@ -14,5 +16,10 @@ class Default(Pattern):
 		self.value = value
 		return
 
-	def __call__(self, col: str) -> str:
-		return self.value if col == '' else col
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		return self.value if value == '' else value

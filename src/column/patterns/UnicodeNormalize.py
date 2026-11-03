@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from typing import Union
+
 from unicodedata import normalize
 from ..Pattern import Pattern
 
@@ -15,5 +17,10 @@ class UnicodeNormalize(Pattern):
 		self.form = form
 		return
 
-	def __call__(self, col: str) -> str:
-		return normalize(self.form, col)
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		return normalize(self.form, value)

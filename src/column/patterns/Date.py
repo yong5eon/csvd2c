@@ -9,9 +9,9 @@ from re import (
 	fullmatch,
 )
 from typing import (
-	Optional,
 	Set,
 	Tuple,
+	Union,
 )
 from ..Pattern import Pattern
 from ..Error import Error
@@ -30,7 +30,6 @@ class Date(Pattern):
 		self,
 		*formats: str,
 		output: str = '%Y-%m-%d',
-		error: Optional[Error] = None,
 	) -> None:
 		if not formats:
 			raise ValueError('At least one date format is required')
@@ -48,25 +47,25 @@ class Date(Pattern):
 				or directives.count('d') != 1
 			):
 				raise ValueError('Each input format must specify year, month, and day once')
-		if error is not None and not isinstance(error, Error):
-			raise TypeError('error must be a column Error instance or None')
 		self.formats: Tuple[str, ...] = formats
 		self.output = output
-		self.error = error
 		return
 
-	def __call__(self, col: str) -> str:
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
 		matches: Set[date] = set()
 		for expression in self.formats:
 			try:
-				value: datetime = datetime.strptime(col, expression)
+				parsed: datetime = datetime.strptime(value, expression)
 			except ValueError:
 				continue
-			matches.add(value.date())
+			matches.add(parsed.date())
 		if len(matches) != 1:
-			if self.error is not None:
-				return self.error(col)
 			if matches:
-				raise ValueError('Value has multiple distinct date interpretations')
-			raise ValueError('Value does not match any valid complete date format')
+				raise Error('Value has multiple distinct date interpretations', row, column, value)
+			raise Error('Value does not match any valid complete date format', row, column, value)
 		return next(iter(matches)).strftime(self.output)

@@ -12,7 +12,7 @@ csvd2c는 **CSV Dirty to Clean**의 약자로, 불규칙한 CSV·TSV 데이터�
 - 행 정제: 컬럼 수 검사, 삽입·제거·재배치·병합·분리, 반복 헤더와 빈 행 검사
 - 컬럼 정제: 공백·Unicode 정규화, 값 검증·매핑, 날짜·숫자·통화 표기 통일
 - 인코딩 처리: 파일 앞부분의 후보 검사와 `surrogateescape`로 보존한 필드 바이트의 조건부 복구
-- 규칙 조합: `Validator`로 여러 `Pattern`을 순서대로 실행하고 사용자 정의 `Pattern`·`Error` 연결
+- 규칙 조합: `Validator`로 여러 `Pattern`을 순서대로 실행하고 사용자 정의 `Pattern` 연결
 
 ## 설치
 
@@ -136,7 +136,7 @@ result: list[str] = validator([
   "Seoul",
   "Gangnam",
   "2026-01-10",
-])
+], 1)
 assert result == ["Example", "Seoul,Gangnam", "2026-01-10"]
 ```
 
@@ -182,8 +182,8 @@ amount = Validator(
   Number(thousands=","),
   Range(minimum=0, maximum=1000000),
 )
-assert date(" 29/02/2024 ") == "2024-02-29"
-assert amount(" 1,234.500 ") == "1234.5"
+assert date(" 29/02/2024 ", 1, "date") == "2024-02-29"
+assert amount(" 1,234.500 ", 1, "amount") == "1234.5"
 ```
 
 - `Date`는 연도·월·일을 각각 포함한 형식을 요구합니다. `1-10`, `Feb-23` 같은 값에 연도를 임의로 채우지 않습니다. 여러 형식에서 서로 다른 날짜로 해석되면 오류입니다.
@@ -203,10 +203,10 @@ from csvd2c.column.patterns import (
 )
 
 currency = Currency({"VN$": "VND"})
-assert currency("CA$1,000") == "CAD 1,000"
-code, amount = currency("VN$ 10,000,000").split(" ", 1)
+assert currency("CA$1,000", 1, "amount") == "CAD 1,000"
+code, amount = currency("VN$ 10,000,000", 1, "amount").split(" ", 1)
 assert code == "VND"
-assert Number(thousands=",")(amount) == "10000000"
+assert Number(thousands=",")(amount, 1, "amount") == "10000000"
 assert "VND" in CURRENCY_CODES
 assert CURRENCY_ALIASES["VND"] == "VND"
 ```
@@ -239,7 +239,7 @@ validator = Validator(
 )
 raw: bytes = "홍길동".encode("cp949")
 preserved: str = raw.decode("utf-8", errors="surrogateescape")
-assert validator(preserved) == "홍길동"
+assert validator(preserved, 1, "name") == "홍길동"
 ```
 
 `TryRecoverEncoding`은 U+DC80~U+DCFF 표식이 있는 값만 시도합니다. 실패하면 입력을 유지해 다음 후보가 처리하고, 성공해 표식이 사라지면 뒤의 후보는 변환하지 않습니다. 예제의 ASCII 후보는 실패하므로 cp949가 처리합니다. 실제 후보 순서는 제공처 정책에 따라 정하세요. cp1258처럼 많은 바이트를 받아들이는 인코딩은 잘못된 후보여도 성공할 수 있습니다.
@@ -250,11 +250,11 @@ assert validator(preserved) == "홍길동"
 
 ## 사용자 정의 규칙과 오류 처리
 
-행·컬럼 `Pattern`은 `__call__`만 정의하는 추상 인터페이스입니다. 각각 `list[str] → list[str]`, `str → str`을 구현합니다. `Validator`는 순서대로 결과를 전달하며 예외를 자동으로 가로채지 않습니다.
+행 Pattern·Validator는 `__call__(value: List[str], row: int) -> List[str]`, 열 구현은 `__call__(value: str, row: int, column: Union[int, str]) -> str` 계약입니다. 직접 호출과 기존 사용자 정의 Pattern은 새 위치 인자를 반영해야 합니다. CSV에 Validator를 주입하면 위치가 자동으로 전달됩니다. 라인 번호는 레코드의 마지막 물리 라인, 열 식별자는 숫자 인덱스 또는 지정한 컬럼명입니다.
 
-데이터 검증 실패가 가능한 구현체는 선택적인 `error=`를 제공합니다. `row.Error`는 행 복사본을 받아 대체 행을 반환하거나 예외를 발생시키고, `column.Error`는 대체 문자열을 반환하거나 예외를 발생시킵니다. 대체값은 자동 재검증하지 않으므로 필요한 최종 검사 Pattern을 이어 붙이세요. 생성자 설정 오류는 즉시 전파합니다. `Insert`·`Slice`·`Pad`·`Truncate`에는 `error=`가 없습니다.
+검증 실패는 `csvd2c.row.Error(message, row, value)` 또는 `csvd2c.column.Error(message, row, column, value)` 예외로 발생하며, 둘 다 `csvd2c.Error(Exception)`를 상속합니다. `value`는 실패한 Pattern에 들어온 값이므로 `Strip → Required`의 실패값은 공백을 제거한 `""`입니다. Pattern별 `error=` 인자는 제거했고 데이터 실패는 더 이상 `ValueError`가 아니므로 `try`/`except`로 처리하세요. 생성자 설정 오류는 기존처럼 `TypeError`·`ValueError`로 즉시 발생합니다. 자세한 계약과 마이그레이션은 [검증 위치와 오류 처리 계약](./docs/README.md#검증-위치와-오류-처리-계약)을 참고하세요.
 
-[사용자 정의 Pattern](./samples/custom_patterns.py)과 [Error 구현](./samples/custom_errors.py)에 완전한 예제가 있습니다. 실패한 레코드를 별도로 기록하며 계속 처리하려면 [거부 기록 샘플](./samples/reject_records.py)처럼 원본 읽기와 검증을 분리하세요. 검증 예외가 발생한 `rows()` generator는 재사용할 수 없으며 파싱·디코딩 오류 이후에는 행 경계를 추측하며 계속 읽지 않습니다.
+[사용자 정의 Pattern](./samples/custom_patterns.py)과 [오류 처리](./samples/custom_errors.py)에 완전한 예제가 있습니다. 실패한 레코드를 기록하며 계속 처리하려면 [거부 기록 샘플](./samples/reject_records.py)처럼 Validator를 CSV에 직접 주입하고 검증 오류를 잡은 뒤 다음 `row()`를 호출하세요. 검증 예외가 발생한 동일한 `rows()` generator는 재사용할 수 없으며 파싱·디코딩 오류 이후에는 행 경계를 추측하며 계속 읽지 않습니다.
 
 ## 사용 시 주의사항
 

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from typing import Union
+
 from re import compile
 from ..Pattern import Pattern
 from ..Validator import Validator
@@ -22,5 +24,10 @@ class IfMatch(Pattern):
 		self.validator = Validator(*patterns)
 		return
 
-	def __call__(self, col: str) -> str:
-		return self.validator(col) if self.expression.fullmatch(col) is not None else col
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		return self.validator(value, row, column) if self.expression.fullmatch(value) is not None else value

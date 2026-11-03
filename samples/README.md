@@ -25,6 +25,8 @@ python -m unittest discover -s tests -p "test_samples.py" -v
 
 ## 예제 목록
 
+직접 호출 예제는 행에 라인 번호, 열에 라인 번호와 열 식별자를 함께 전달합니다. 메모리의 단일 입력 예제에서는 명시적으로 `1`, `0`을 지정합니다. 실제 파일을 읽을 때는 CSV에 Validator를 주입하면 마지막 물리 라인 번호와 숫자 인덱스 또는 컬럼명이 전달됩니다. Error의 값은 해당 Pattern의 입력값이며 최초 파일 값은 추적하지 않습니다.
+
 ### 읽기와 스트리밍
 
 | 파일 | 참고할 내용 |
@@ -44,9 +46,9 @@ python -m unittest discover -s tests -p "test_samples.py" -v
 | [row_structure.py](./row_structure.py) | `Length`, `Remove`, `Reorder`, `Insert`, `Replace`, `Slice`, 원본 유지 |
 | [row_padding.py](./row_padding.py) | 확인된 뒤쪽 초과·누락 컬럼에만 `Truncate`/`Pad` 적용 |
 | [row_merge_split.py](./row_merge_split.py) | `IfLength`로 알려진 쉼표 파손 구조만 `Merge`, `Split`의 `maxsplit` |
-| [reject_records.py](./reject_records.py) | 빈 행·반복 헤더·길이 오류 거부, 원본과 이유를 JSONL로 기록 |
-| [custom_errors.py](./custom_errors.py) | 행·컬럼 `Error` 구현, 명시적인 오류 기록과 승인된 대체 정책 |
-| [custom_patterns.py](./custom_patterns.py) | 행·컬럼 `Pattern` 상속, 행 처리 후 컬럼 처리, 출처 컬럼 추가 |
+| [reject_records.py](./reject_records.py) | CSV에 Validator 직접 주입, 행·열 `Error`를 잡아 입력값·라인·컬럼·메시지를 JSONL로 기록하고 다음 `row()` 읽기 |
+| [custom_errors.py](./custom_errors.py) | 행·열 `Error` 예외의 속성 확인, 공통 `Error`를 상속한 사용자 정의 예외 |
+| [custom_patterns.py](./custom_patterns.py) | 행·컬럼 `Pattern` 상속, 사용자 정의 행·열 Pattern의 오류 발생, 행 처리 후 컬럼 처리, 출처 컬럼 추가 |
 
 ### 컬럼 정제와 검증
 
@@ -67,8 +69,8 @@ python -m unittest discover -s tests -p "test_samples.py" -v
 - 인코딩 복구는 `Strip`·치환·Unicode 정규화보다 먼저 적용하세요. `TryRecoverEncoding`은 언어를 감지하지 않으며 첫 strict 디코딩 성공을 채택합니다. cp1258처럼 많은 바이트를 받아들이는 후보는 실제 인코딩을 구분하지 못할 수 있습니다. 이미 `�`로 대체된 바이트도 되살리지 못합니다.
 - `Merge`·`Pad`·기본값·통화 별칭은 샘플에 명시된 제공처 정책입니다. 모든 불규칙한 CSV에 안전한 자동 복구가 아닙니다. `Currency`는 접두부만 처리하므로 금액 구간은 별도 정책으로 나눕니다.
 - `Date`는 연도·월·일을 요구합니다. `1-10`, `Feb-23` 같은 값에 연도를 임의로 채우지 않습니다. `%b`/`%B`는 실행 환경의 로캘 영향을 받으므로 날짜 예제는 숫자 형식을 사용합니다.
-- 오류 이후 다음 레코드를 계속 처리하려면 [reject_records.py](./reject_records.py)처럼 읽기와 검증을 분리하세요. `rows()`에서 검증 예외가 발생한 generator는 재사용하지 않습니다. 파싱·디코딩 오류 이후에는 경계를 추측하며 읽기를 계속하지 않습니다. 기록 번호는 물리적 줄 번호가 아니라 헤더를 포함한 CSV 레코드 순서입니다.
-- 거부 기록에는 원본 값이 들어갑니다. 실제 고객 데이터에서는 보관 위치·접근 권한·비식별화 정책을 확인하세요.
+- 오류 이후 다음 레코드를 계속 처리하려면 [reject_records.py](./reject_records.py)처럼 읽기와 검증을 분리하세요. `rows()`에서 검증 예외가 발생한 generator는 재사용하지 않습니다. 파싱·디코딩 오류 이후에는 경계를 추측하며 읽기를 계속하지 않습니다. `row`는 레코드의 마지막 물리적 줄 번호입니다.
+- 거부 기록에는 검증에 실패한 값이 들어갑니다. 실제 고객 데이터에서는 보관 위치·접근 권한·비식별화 정책을 확인하세요.
 - 대용량 처리에서는 `list(csv.rows())` 대신 스트리밍이나 제한 배치를 사용하세요. 배치 한도는 행 수 기준이며 한 행의 바이트 크기를 제한하지 않습니다. 샘플의 소형 데이터 검증은 실제 200GB 처리 성능 검증이 아닙니다.
 - 샘플 검증은 설치된 `csvd2c`를 다른 작업 디렉터리의 격리 subprocess에서 import합니다. `assert` 검증을 끄는 `python -O`는 사용하지 마세요.
 

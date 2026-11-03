@@ -37,7 +37,7 @@ def main() -> None:
 			for record in csv.rows(header=header):
 				assert record == next(expected)
 				print(record)
-		assert Pad(3, 'missing')(['a']) == [
+		assert Pad(3, 'missing')(['a'], 1) == [
 			'a',
 			'missing',
 			'missing',

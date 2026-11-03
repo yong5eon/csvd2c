@@ -16,21 +16,6 @@ from csvd2c.column.patterns import (
 )
 
 
-class Recover(Error):
-	def __init__(self) -> None:
-		self.values: list[str] = []
-		return
-
-	def __call__(self, col: str) -> str:
-		self.values.append(col)
-		return 'recovered'
-
-
-class Fail(Error):
-	def __call__(self, col: str) -> str:
-		raise RuntimeError('Handler failure')
-
-
 class CurrencyTests(TestCase):
 	"""
 	Verify ISO codes, prefix policies, explicit damage recovery, and preservation.
@@ -63,16 +48,16 @@ class CurrencyTests(TestCase):
 			('₽', 'RUB'),
 		):
 			with self.subTest(prefix=prefix):
-				self.assertEqual(Currency()(prefix + '1,000'), code + ' 1,000')
+				self.assertEqual(Currency()(prefix + '1,000', 1, 0), code + ' 1,000')
 		return
 
 	def test_entire_code_snapshot(self) -> None:
 		self.assertEqual(len(Currency.codes), 178)
 		for code in Currency.codes:
-			self.assertEqual(Currency()(code + ' 1,000.00'), code + ' 1,000.00')
+			self.assertEqual(Currency()(code + ' 1,000.00', 1, 0), code + ' 1,000.00')
 		for code in ('BGN', 'HRK', 'ZZZ'):
-			with self.assertRaises(ValueError):
-				Currency()(code + ' 100')
+			with self.assertRaises(Error):
+				Currency()(code + ' 100', 1, 0)
 		return
 
 	def test_constant_mappings_and_all_aliases(self) -> None:
@@ -83,15 +68,15 @@ class CurrencyTests(TestCase):
 		for alias, code in CURRENCY_ALIASES.items():
 			with self.subTest(alias=alias):
 				self.assertIn(code, CURRENCY_CODES)
-				self.assertEqual(pattern(alias + ' 1,000'), code + ' 1,000')
+				self.assertEqual(pattern(alias + ' 1,000', 1, 0), code + ' 1,000')
 		return
 
 	def test_readonly_constants_and_instance_overrides(self) -> None:
 		with self.assertRaises(TypeError):
 			CURRENCY_ALIASES['$'] = 'CAD'  # type: ignore[index]
 		custom = Currency({'$': 'CAD'})
-		self.assertEqual(custom('$100'), 'CAD 100')
-		self.assertEqual(Currency()('$100'), 'USD 100')
+		self.assertEqual(custom('$100', 1, 0), 'CAD 100')
+		self.assertEqual(Currency()('$100', 1, 0), 'USD 100')
 		self.assertEqual(CURRENCY_ALIASES['$'], 'USD')
 		return
 
@@ -103,7 +88,7 @@ class CurrencyTests(TestCase):
 			('日本円', 'JPY'),
 			('人民币', 'CNY'),
 		):
-			self.assertEqual(Currency()(alias + ' 100'), code + ' 100')
+			self.assertEqual(Currency()(alias + ' 100', 1, 0), code + ' 100')
 		for alias in ('kr', 'Rs'):
 			self.assertNotIn(alias, CURRENCY_ALIASES)
 		return
@@ -121,7 +106,7 @@ class CurrencyTests(TestCase):
 				'\udcff',
 				'\ufffd\udcff',
 			):
-				self.assertEqual(Currency()(country + marker + '1,000'), code + ' 1,000')
+				self.assertEqual(Currency()(country + marker + '1,000', 1, 0), code + ' 1,000')
 		return
 
 	def test_preserves_amount_formatting(self) -> None:
@@ -132,9 +117,9 @@ class CurrencyTests(TestCase):
 			'+12',
 			'1  000',
 		):
-			self.assertEqual(Currency()('  KRW \t' + amount + ' \n'), 'KRW ' + amount)
+			self.assertEqual(Currency()('  KRW \t' + amount + ' \n', 1, 0), 'KRW ' + amount)
 		# Numerical validity is explicitly outside this Pattern's responsibility.
-		self.assertEqual(Currency()('USD 1,23'), 'USD 1,23')
+		self.assertEqual(Currency()('USD 1,23', 1, 0), 'USD 1,23')
 		return
 
 	def test_rejects_unknown_and_unrecoverable_values(self) -> None:
@@ -153,23 +138,22 @@ class CurrencyTests(TestCase):
 			'$1\udcff00',
 			'usd 100',
 		):
-			with self.assertRaises(ValueError):
-				Currency()(value)
+			with self.assertRaises(Error):
+				Currency()(value, 1, 0)
 		return
 
 	def test_custom_mapping_and_copy(self) -> None:
 		mapping = {'C$': 'CAD', '$': 'AUD', 'odd': 'EUR', 'US dollars': 'USD'}
 		pattern = Currency(mapping)
 		mapping['C$'] = 'USD'
-		self.assertEqual(pattern('C$100'), 'CAD 100')
-		self.assertEqual(pattern('$100'), 'AUD 100')
-		self.assertEqual(pattern('odd100'), 'EUR 100')
-		self.assertEqual(pattern('US dollars 100'), 'USD 100')
-		self.assertEqual(pattern('USD 100'), 'USD 100')
+		self.assertEqual(pattern('C$100', 1, 0), 'CAD 100')
+		self.assertEqual(pattern('$100', 1, 0), 'AUD 100')
+		self.assertEqual(pattern('odd100', 1, 0), 'EUR 100')
+		self.assertEqual(pattern('US dollars 100', 1, 0), 'USD 100')
+		self.assertEqual(pattern('USD 100', 1, 0), 'USD 100')
 		return
 
-	def test_configuration_and_handlers(self) -> None:
-		handler = Recover()
+	def test_configuration_and_error_context(self) -> None:
 		for mapping in (
 			{'': 'USD'},
 			{' $': 'USD'},
@@ -178,20 +162,16 @@ class CurrencyTests(TestCase):
 			{'$': 1},
 		):
 			with self.assertRaises(ValueError):
-				Currency(mapping, error=handler)
-		self.assertEqual(handler.values, [])
-		with self.assertRaises(TypeError):
-			Currency(error='invalid')
-		self.assertEqual(Currency(error=handler)('  bad '), 'recovered')
-		self.assertEqual(handler.values, ['  bad '])
-		self.assertEqual(Currency(error=handler)('$100'), 'USD 100')
-		self.assertEqual(len(handler.values), 1)
-		with self.assertRaisesRegex(RuntimeError, 'Handler failure'):
-			Currency(error=Fail())('bad')
+				Currency(mapping)
+		with self.assertRaises(Error) as context:
+			Currency()('  bad ', 3, 'amount')
+		self.assertEqual(context.exception.value, '  bad ')
+		self.assertEqual(context.exception.row, 3)
+		self.assertEqual(context.exception.column, 'amount')
 		return
 
 	def test_validator_composition(self) -> None:
-		self.assertEqual(Validator(Strip(), Currency())('  CA$1,000  '), 'CAD 1,000')
+		self.assertEqual(Validator(Strip(), Currency())('  CA$1,000  ', 1, 0), 'CAD 1,000')
 		return
 
 

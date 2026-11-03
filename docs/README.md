@@ -60,17 +60,60 @@ with CSV(
 - `surrogateescape`는 해석할 수 없는 바이트를 보존할 뿐 복구하지 않습니다. 해당 값을 검사 없이 DB 등에 전달하지 마세요. 이미 저장된 `�`는 별도로 검증해야 합니다.
 - 파일 전체를 적재하지 않지만, 비정상적으로 큰 레코드는 메모리 사용량에 영향을 줍니다. CSV 파서의 필드 크기 제한을 무작정 늘리지 마세요.
 
+## 검증 위치와 오류 처리 계약
+
+행 `Pattern`·`Validator`는 `__call__(value: List[str], row: int) -> List[str]`, 열 구현은 `__call__(value: str, row: int, column: Union[int, str]) -> str` 계약을 사용합니다. `self`는 생략한 표기입니다. 직접 호출할 때는 위치 인자를 제공해야 하며, 이전 한 인자 사용자 정의 Pattern도 새 시그니처로 수정해야 합니다.
+
+CSV에 Validator를 주입하면 CSV가 라인 번호와 열 식별자를 전달합니다. 라인 번호는 1부터 시작하는 실제 파일의 물리 라인 번호이며 레코드를 모두 읽은 마지막 라인입니다. 인용 개행으로 2~3번 라인에 걸친 레코드가 실패하면 3입니다. 정확한 오류 문자 위치나 논리 레코드 번호를 의미하지 않습니다. 튜플로 지정한 열 Validator는 0부터 시작하는 인덱스, 이름으로 지정한 Validator는 지정한 컬럼명을 받습니다. 출력용 `header=`는 이 식별자를 바꾸지 않습니다.
+
+검증 실패는 예외로 알립니다. 오류 클래스의 상속 관계는 다음과 같습니다.
+
+| 클래스 | 상속 | 생성자 | 속성 |
+| --- | --- | --- | --- |
+| `csvd2c.Error` | `Exception` | `message` | `message` |
+| `csvd2c.row.Error` | `csvd2c.Error` | `message, row, value: List[str]` | `message`, `row`, `value` |
+| `csvd2c.column.Error` | `csvd2c.Error` | `message, row, column, value: str` | `message`, `row`, `column`, `value` |
+
+`value`는 실패한 Pattern에 들어온 값입니다. `Strip`이 `"   "`을 `""`로 바꾼 뒤 `Required`가 실패하면 `value`는 `""`입니다. 파일 최초 값이나 체인 시작 값을 별도로 보존하지 않습니다. 행 변환 후 열 검증은 변경된 행에 적용하며 변환 전 필드로 역추적하지 않습니다. 위치를 식별할 수 없는 실패는 `csvd2c.Error`를 직접 발생시키거나 상속해 사용합니다.
+
+```python
+from csvd2c.column import Error, Validator
+from csvd2c.column.patterns import Required, Strip
+
+validator = Validator(Strip(), Required())
+try:
+  validator("   ", 2, "name")
+except Error as error:
+  assert (error.row, error.column, error.value) == (2, "name", "")
+  assert error.message == "A nonempty value is required"
+```
+
+기존의 Pattern별 `error=` 인자와 호출형 Error 처리기는 제거했습니다. 기록·복구·건너뛰기는 호출자가 `try`/`except`로 처리합니다. 데이터 검증 실패는 더 이상 `ValueError`가 아니므로 `except ValueError`로 잡던 코드는 `csvd2c.row.Error`, `csvd2c.column.Error` 또는 공통 `csvd2c.Error`로 바꾸세요. 생성자 설정 오류는 기존처럼 `TypeError`·`ValueError`를 즉시 발생시킵니다. 행 검증 후 열 Validator가 지정한 위치의 값이 레코드에 없으면 `csvd2c.row.Error`가 발생합니다.
+
+사용자 정의 Pattern은 실패 시 같은 오류 클래스나 그 하위 클래스를 발생시킬 수 있습니다. 예외를 발생시키지 않고 값을 그대로 반환하는 Pattern도 허용합니다.
+
+실패한 레코드를 기록하며 계속 처리하려면 [거부 기록 샘플](../samples/reject_records.py)처럼 Validator를 CSV에 직접 주입하고 검증 오류만 잡은 뒤 다음 `row()`를 호출합니다. 예외로 종료된 동일한 `rows()` Generator는 재개할 수 없습니다. 파싱·파일 디코딩 실패는 검증 오류가 아니며 위치나 원문을 추측하지 않습니다.
+
+```mermaid
+flowchart LR
+  CSV["CSV: 레코드와 마지막 라인"] --> Row["행 Validator: 값·라인"]
+  Row --> Col["열 Validator: 변경된 값·라인·열"]
+  Col --> Pattern["Pattern: 현재 입력값"]
+  Pattern -- 실패 --> Raise["row.Error / column.Error 발생"]
+  Raise --> Caller["호출자 except: 기록·건너뛰기"]
+```
+
 ## 행 구조 Pattern
 
 행 구조 Pattern은 `csvd2c.row.patterns`에서 가져옵니다.
 
 | Pattern | 동작 |
 | --- | --- |
-| `Length(count)` | 정확한 컬럼 수 검사, 불일치 시 `ValueError` |
+| `Length(count)` | 정확한 컬럼 수 검사, 불일치 시 행 Error 발생 |
 | `Truncate(count)` | 뒤쪽 초과 컬럼 제거, 같거나 적으면 모든 값 유지 |
 | `Pad(count, value="")` | 부족한 컬럼을 뒤에 지정값으로 채움, 같거나 많으면 모든 값 유지 |
 | `Insert(index, value)` | Python `list.insert` 규칙으로 문자열 삽입, 초과 인덱스는 끝으로 보정 |
-| `Remove(index)` | Python 인덱스 규칙으로 한 컬럼 제거, 범위 초과 시 Error 처리 또는 `ValueError` |
+| `Remove(index)` | Python 인덱스 규칙으로 한 컬럼 제거, 범위 초과 시 행 Error 발생 |
 | `Reorder(*indices)` | 모든 컬럼을 정확히 한 번 지정하여 재배치, 누락·중복·범위 초과 거부 |
 | `Slice(start=None, stop=None, step=None)` | Python 슬라이싱, 음수 지원·범위 잘림·0 step 거부 |
 | `Merge(start, stop, sep=",")` | stop 제외 범위 병합, 빈 구간·범위 초과 거부 |
@@ -80,9 +123,7 @@ with CSV(
 | `RejectEmpty()` | 빈 레코드 또는 모든 필드가 정확히 빈 문자열인 레코드 거부 |
 | `RejectHeader(*names)` | 지정한 헤더와 값·순서가 정확히 같은 레코드 거부 |
 
-`Pattern`은 호출 계약만 정의하며 생성자나 공통 오류 처리 메소드를 제공하지 않습니다. 각 구현체가 오류 처리 필요 여부를 결정합니다. `Length`, `Remove`, `Reorder`, `Merge`, `Split`, `Replace`, `IfLength`, `RejectEmpty`, `RejectHeader`는 선택적인 `error=`를 받습니다. 데이터 검증 실패 시 `row.Error.__call__(row)`를 호출하고 반환된 대체 행을 사용합니다. 없으면 `ValueError`를 발생시킵니다. 생성자 설정 오류는 즉시 전파하며 Error로 보내지 않습니다. Error에는 원본 보호를 위한 행 복사본을 전달합니다. 자동 건너뛰기는 지원하지 않습니다. `Insert`, `Slice`, `Pad`, `Truncate`는 `error` 인자를 받지 않습니다.
-
-`column.Error.__call__(col)`은 대체 문자열을 반환하거나 예외를 발생시키는 계약입니다. 사용자 정의 컬럼 Pattern은 필요할 때 자체 생성자에서 Error를 받고 검증 실패 시 직접 호출합니다. 부모 클래스나 Validator는 예외를 자동으로 가로채지 않습니다.
+`Length`, `Remove`, `Reorder`, `Merge`, `Split`, `Replace`, `RejectEmpty`, `RejectHeader`는 데이터 실패 시 해당 Pattern의 입력 행과 라인 번호를 담은 `csvd2c.row.Error`를 발생시킵니다. 생성자 설정 오류는 기존처럼 `TypeError`·`ValueError`로 즉시 발생합니다. 자동 건너뛰기는 지원하지 않습니다. `Insert`, `Slice`, `Pad`, `Truncate`는 데이터 실패가 없습니다.
 
 ```python
 from csvd2c.row import Validator
@@ -98,7 +139,7 @@ validator = Validator(
 )
 ```
 
-조건이 다르면 원래 행을 유지합니다. `IfLength` 내부에서 발생한 `ValueError`도 지정된 Error로 처리할 수 있으며, 처리 결과를 자동 재검증하지 않습니다. 최종 구조 검사가 필요하면 위처럼 `Length`를 조합하세요.
+조건이 다르면 원래 행을 유지합니다. 내부 Pattern의 예외는 그대로 전파합니다. 최종 구조 검사가 필요하면 위처럼 `Length`를 조합하세요.
 
 치환 Pattern은 새 list를 반환하여 입력을 보존합니다. `Length`는 검사 후 입력을 그대로 반환합니다. 인덱스는 음수를 지원합니다. `Reorder`는 음수 인덱스를 정규화한 뒤 중복을 검사합니다. 위치나 대체값은 추측하지 않고 호출자가 지정합니다.
 
@@ -113,7 +154,7 @@ validator = Validator(
   Remove(1),
   Length(2),
 )
-result: list[str] = validator(["Kim", "unused", "1-10"])
+result: list[str] = validator(["Kim", "unused", "1-10"], 1)
 ```
 
 이 예제는 두 번째 컬럼이 불필요하다는 사실이 확인된 입력에만 적용합니다.
@@ -139,7 +180,7 @@ validator = Validator(
 
 ## 컬럼 Pattern
 
-`csvd2c.column.patterns`의 Pattern은 문자열을 받아 문자열을 반환합니다. 숫자·날짜도 Python 객체 대신 정규화된 문자열로 반환합니다. 생성자 설정 오류는 즉시 발생하며, 데이터 검증 실패가 가능한 구현체만 선택적인 `error=`를 제공합니다. Error는 원래 문자열을 받아 대체 문자열을 반환하거나 예외를 발생시킵니다. 대체값을 자동 재검증하지는 않습니다.
+`csvd2c.column.patterns`의 Pattern은 문자열과 라인 번호·열 식별자를 받아 문자열을 반환합니다. 숫자·날짜도 Python 객체 대신 정규화된 문자열로 반환합니다. 생성자 설정 오류는 즉시 발생하며, 데이터 검증 실패는 해당 Pattern의 입력 문자열과 위치를 담은 `csvd2c.column.Error`로 발생합니다.
 
 | Pattern | 동작 |
 | --- | --- |
@@ -169,7 +210,7 @@ validator = Validator(
 | `RecoverEncoding(source, read_encoding="utf-8")` | surrogateescape로 필드 바이트 복원 후 명시한 인코딩으로 디코딩 |
 | `TryRecoverEncoding(source, read_encoding="utf-8")` | 표식이 있는 값만 복구 시도, codec 실패 시 원본 유지 |
 
-`Required`, `Length`, `Regex`, `Choices`, 손상 문자 검사 3종, `Map`, `Date`, `Number`, `Range`, `Recode`가 `error=`를 받습니다. 조건 Pattern은 내부 구현체의 오류를 그대로 전파합니다.
+`Required`, `Length`, `Regex`, `Choices`, 손상 문자 검사 3종, `Map`, `Date`, `Number`, `Range`, `Currency`, `Recode`, `RecoverEncoding`이 실패 시 `csvd2c.column.Error`를 발생시킵니다. 조건 Pattern은 내부 구현체의 오류를 그대로 전파합니다.
 
 ```python
 from csvd2c.column import Validator
@@ -214,7 +255,7 @@ csv = CSV(
 )
 ```
 
-`RecoverEncoding`은 읽기 인코딩으로 `surrogateescape` 재인코딩하여 바이트를 되찾은 뒤 `source`로 strict 디코딩합니다. 데이터 실패는 `error=` 또는 ValueError로 보고합니다. Strip·치환·Unicode 정규화 전에 적용하세요. 반환은 str이며 최종 저장 단계에서 UTF-8로 인코딩합니다. 표식이 없다고 정상 데이터라는 보장은 없고, CP1258 디코딩 성공도 원래 인코딩의 증거가 아닙니다. 한 필드 내부의 혼합 인코딩이나 이미 저장된 U+FFFD를 복구하지 않습니다. BOM·개행 변환 등 읽기 단계에서 제거·변환된 정보도 자동 복원하지 못합니다.
+`RecoverEncoding`은 읽기 인코딩으로 `surrogateescape` 재인코딩하여 바이트를 되찾은 뒤 `source`로 strict 디코딩합니다. 데이터 실패는 `csvd2c.column.Error`로 발생합니다. Strip·치환·Unicode 정규화 전에 적용하세요. 반환은 str이며 최종 저장 단계에서 UTF-8로 인코딩합니다. 표식이 없다고 정상 데이터라는 보장은 없고, CP1258 디코딩 성공도 원래 인코딩의 증거가 아닙니다. 한 필드 내부의 혼합 인코딩이나 이미 저장된 U+FFFD를 복구하지 않습니다. BOM·개행 변환 등 읽기 단계에서 제거·변환된 정보도 자동 복원하지 못합니다.
 
 Currency는 [SIX ISO 4217 List One](https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml)의 2026-09-17 공개본에 있는 178개 코드를 검증하며, 실행 중 네트워크 요청은 하지 않습니다. 펀드·귀금속·테스트·통화 없음 코드도 목록에 포함됩니다. 과거 폐지 코드는 지원하지 않으며 목록 변경 시 코드 갱신이 필요합니다.
 
@@ -224,7 +265,7 @@ Currency는 [SIX ISO 4217 List One](https://www.six-group.com/dam/download/finan
 from csvd2c.column.patterns import Currency
 
 currency = Currency()
-result: str = currency("CA$1,000")  # CAD 1,000
+result: str = currency("CA$1,000", 1, "amount")  # CAD 1,000
 custom = Currency({"C$": "CAD"})
 ```
 
@@ -233,7 +274,7 @@ custom = Currency({"C$": "CAD"})
 - 매핑 키는 정확한 접두부 문자열, 값은 현재 ISO 코드입니다. 사용자 매핑은 복사하며 기본 기호를 재정의할 수 있지만 ISO 코드를 다른 코드로 바꿀 수는 없습니다. 긴 접두부부터 검사합니다. 대소문자는 구분합니다.
 - 예를 들어 `US Dollar 100`, `미국 달러 100`, `日本円 100`은 각각 `USD 100`, `USD 100`, `JPY 100`으로 반환합니다. alias는 ISO 표준 자체가 아니라 별도의 입력 해석 정책입니다.
 - 결과는 `CODE + 공백 + 금액`입니다. 금액의 앞뒤 공백만 제거하고 구분자·소수점·내부 공백을 유지합니다. 금액은 숫자 또는 `+`, `-`, `.`, `,`, `(`로 시작해야 하며 숫자 유효성 검사는 하지 않습니다.
-- 미등록 접두부, 금액 누락, 금액 내부 손상 문자는 `error=`로 처리하거나 ValueError를 발생시킵니다. `?`는 손상 기호로 추정하지 않습니다. Currency 결과 전체에는 Number를 바로 적용할 수 없으며 숫자 정규화가 필요하면 코드와 금액을 분리해야 합니다.
+- 미등록 접두부, 금액 누락, 금액 내부 손상 문자는 `csvd2c.column.Error`를 발생시킵니다. `?`는 손상 기호로 추정하지 않습니다. Currency 결과 전체에는 Number를 바로 적용할 수 없으며 숫자 정규화가 필요하면 코드와 금액을 분리해야 합니다.
 
 - Date 입력 형식은 연도(`%Y` 또는 `%y`), 월(`%m`, `%b`, `%B`), 일(`%d`)을 각각 한 번 포함해야 합니다. 지원 지시자는 이들 및 리터럴 `%%`로 제한합니다. 연도를 추정하지 않으며, `%y`는 Python의 2자리 연도 해석 규칙을 따릅니다. 문자 월 이름은 프로세스 로캘에 영향을 받습니다. 라이브러리는 로캘을 변경하지 않습니다.
 - `01/02/2024`가 여러 형식에서 다른 날짜로 해석되면 오류입니다. 같은 날짜로 해석되는 중복 형식은 허용합니다.
@@ -254,7 +295,7 @@ custom = Currency({"C$": "CAD"})
 - 원본을 보존하고, 보정한 값과 처리 사유를 구분할 수 있도록 합니다.
 - 모호한 날짜나 손상된 문자열을 임의로 추측하여 복구하지 않습니다.
 - 디코딩 오류, CSV 파싱 오류, 구조 오류와 컬럼 검증 실패를 구분하여 보고합니다.
-- 정상 결과, 보정 결과와 확인이 필요한 데이터의 분류·저장은 호출자가 구현합니다. [reject_records.py](../samples/reject_records.py)는 검증 실패의 원본과 이유를 별도 파일에 기록하는 예제입니다.
+- 정상 결과, 보정 결과와 확인이 필요한 데이터의 분류·저장은 호출자가 구현합니다. [reject_records.py](../samples/reject_records.py)는 검증에 실패한 값과 이유를 별도 파일에 기록하는 예제입니다.
 
 ## 라이선스
 

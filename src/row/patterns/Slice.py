@@ -32,8 +32,12 @@ class Slice(Pattern):
 		self.selection: slice = slice(start, stop, step)
 		return
 
-	def __call__(self, row: List[str]) -> List[str]:
-		return row[self.selection]
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
+		return value[self.selection]
 
 	def __repr__(self) -> str:
 		return 'Slice({!r}, {!r}, {!r})'.format(

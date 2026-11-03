@@ -21,7 +21,7 @@ def main() -> None:
 		'Seoul',
 		'Gangnam',
 		'2026-01-10',
-	]) == [
+	], 1) == [
 		'Kim',
 		'Seoul,Gangnam',
 		'2026-01-10',
@@ -32,7 +32,7 @@ def main() -> None:
 		'Gangnam',
 		'Street',
 		'2026-01-10',
-	]) == [
+	], 1) == [
 		'Kim',
 		'Seoul,Gangnam,Street',
 		'2026-01-10',
@@ -41,7 +41,7 @@ def main() -> None:
 		'Kim',
 		'Seoul',
 		'2026-01-10',
-	]) == [
+	], 1) == [
 		'Kim',
 		'Seoul',
 		'2026-01-10',
@@ -49,7 +49,7 @@ def main() -> None:
 	assert Split(1, sep='|', maxsplit=1)([
 		'Kim',
 		'Seoul|Gangnam|Street',
-	]) == [
+	], 1) == [
 		'Kim',
 		'Seoul',
 		'Gangnam|Street',

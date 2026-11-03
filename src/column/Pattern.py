@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from typing import Union
+
 from abc import (
 	ABC,
 	abstractmethod,
@@ -16,6 +18,7 @@ class Pattern(ABC):
 
 	Sample:
 	from operator import eq
+	from csvd2c.column import Error
 
 	class SamplePattern(Pattern):
 		def __init__(self, compare):
@@ -23,13 +26,23 @@ class Pattern(ABC):
 			self.compare = compare
 			return
 
-		def __call__(self, col: str) -> str:
-			if not eq(col, self.compare):
-				raise ValueError('{} is not equal to {}'.format(col, self.compare))
-			return col # if true, return parameter
+		def __call__(
+			self,
+			value: str,
+			row: int,
+			column: Union[int, str],
+		) -> str:
+			if not eq(value, self.compare):
+				raise Error('{} is not equal to {}'.format(value, self.compare), row, column, value)
+			return value # if true, return parameter
 	"""
 	@abstractmethod
-	def __call__(self, col: str) -> str:
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
 		raise NotImplementedError('Subclasses must implement this method')
 
 	def __repr__(self):

@@ -8,7 +8,10 @@ from unittest import (
 )
 
 from csvd2c import CSV
-from csvd2c.row import Validator
+from csvd2c.row import (
+	Error,
+	Validator,
+)
 from csvd2c.row.patterns import (
 	Insert,
 	Length,
@@ -31,9 +34,9 @@ class RowPatternTests(TestCase):
 			['a'],
 			['a', 'b'],
 		):
-			self.assertIs(Length(len(row))(row), row)
-			with self.assertRaises(ValueError):
-				Length(len(row) + 1)(row)
+			self.assertIs(Length(len(row))(row, 1), row)
+			with self.assertRaises(Error):
+				Length(len(row) + 1)(row, 1)
 		with self.assertRaises(ValueError):
 			Length(-1)
 		with self.assertRaises(TypeError):
@@ -55,7 +58,7 @@ class RowPatternTests(TestCase):
 				original = row.copy()
 				expected = row.copy()
 				expected.insert(index, 'x')
-				actual = Insert(index, 'x')(row)
+				actual = Insert(index, 'x')(row, 1)
 				self.assertEqual(actual, expected)
 				self.assertEqual(row, original)
 				self.assertIsNot(actual, row)
@@ -71,37 +74,37 @@ class RowPatternTests(TestCase):
 			row = ['a', 'b']
 			expected = row.copy()
 			expected.pop(index)
-			self.assertEqual(Remove(index)(row), expected)
+			self.assertEqual(Remove(index)(row, 1), expected)
 			self.assertEqual(row, ['a', 'b'])
 		for index in (
 			-3,
 			2,
 		):
-			with self.assertRaises(ValueError):
-				Remove(index)(['a', 'b'])
-		with self.assertRaises(ValueError):
-			Remove(0)([])
+			with self.assertRaises(Error):
+				Remove(index)(['a', 'b'], 1)
+		with self.assertRaises(Error):
+			Remove(0)([], 1)
 		return
 
 	def test_reorder(self) -> None:
 		row = ['a', 'b', 'c']
-		self.assertEqual(Reorder(2, 0, 1)(row), ['c', 'a', 'b'])
-		self.assertEqual(Reorder(-1, -3, -2)(row), ['c', 'a', 'b'])
+		self.assertEqual(Reorder(2, 0, 1)(row, 1), ['c', 'a', 'b'])
+		self.assertEqual(Reorder(-1, -3, -2)(row, 1), ['c', 'a', 'b'])
 		self.assertEqual(row, ['a', 'b', 'c'])
-		self.assertEqual(Reorder()([]), [])
+		self.assertEqual(Reorder()([], 1), [])
 		for pattern in (
 			Reorder(0, 1),
 			Reorder(0, 1, 1),
 			Reorder(0, 1, -2),
 		):
-			with self.assertRaises(ValueError):
-				pattern(row)
+			with self.assertRaises(Error):
+				pattern(row, 1)
 		for pattern in (
 			Reorder(0, 1, 3),
 			Reorder(0, 1, -4),
 		):
-			with self.assertRaises(ValueError):
-				pattern(row)
+			with self.assertRaises(Error):
+				pattern(row, 1)
 		return
 
 	def test_slice_matches_python_and_preserves_input(self) -> None:
@@ -114,11 +117,11 @@ class RowPatternTests(TestCase):
 			(None, None, -1),
 			(2, 1, None),
 		):
-			actual = Slice(*bounds)(row)
+			actual = Slice(*bounds)(row, 1)
 			self.assertEqual(actual, row[slice(*bounds)])
 			self.assertIsNot(actual, row)
 			self.assertEqual(row, ['a', 'b', 'c'])
-		self.assertEqual(Slice()([]), [])
+		self.assertEqual(Slice()([], 1), [])
 		with self.assertRaises(ValueError):
 			Slice(step=0)
 		return
@@ -150,7 +153,7 @@ class RowPatternTests(TestCase):
 			):
 				with self.subTest(row=row, count=count):
 					original = row.copy()
-					actual = Truncate(count)(row)
+					actual = Truncate(count)(row, 1)
 					self.assertEqual(actual, row[:count])
 					self.assertEqual(row, original)
 					self.assertIsNot(actual, row)
@@ -174,14 +177,14 @@ class RowPatternTests(TestCase):
 				):
 					with self.subTest(row=row, count=count, value=value):
 						original = row.copy()
-						actual = Pad(count, value)(row)
+						actual = Pad(count, value)(row, 1)
 						self.assertEqual(
 							actual,
 							row + [value] * max(0, count - len(row)),
 						)
 						self.assertEqual(row, original)
 						self.assertIsNot(actual, row)
-		self.assertEqual(Pad(2)(['a']), ['a', ''])
+		self.assertEqual(Pad(2)(['a'], 1), ['a', ''])
 		return
 
 	def test_truncate_and_pad_invalid_configuration(self) -> None:
@@ -232,7 +235,7 @@ class RowPatternTests(TestCase):
 			Slice(0, 2),
 			Length(2),
 		)
-		self.assertEqual(validator(row), ['a', 'b'])
+		self.assertEqual(validator(row, 1), ['a', 'b'])
 		self.assertEqual(row, ['b', 'unused', 'a'])
 		return
 

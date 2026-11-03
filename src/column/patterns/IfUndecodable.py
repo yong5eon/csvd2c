@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from typing import Union
+
 from ..Pattern import Pattern
 from ..Validator import Validator
 
@@ -17,7 +19,12 @@ class IfUndecodable(Pattern):
 		self.validator = Validator(*patterns)
 		return
 
-	def __call__(self, col: str) -> str:
-		if any('\udc80' <= char <= '\udcff' for char in col):
-			return self.validator(col)
-		return col
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		if any('\udc80' <= char <= '\udcff' for char in value):
+			return self.validator(value, row, column)
+		return value

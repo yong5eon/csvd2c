@@ -12,7 +12,7 @@ csvd2c stands for **CSV Dirty to Clean**, a Python library for streaming reads a
 - Row cleansing: validate counts, insert, remove, reorder, merge, split, and check empty records or repeated headers
 - Column cleansing: normalize whitespace and Unicode, validate and map values, and standardize dates, numbers, and currency prefixes
 - Encoding handling: check candidates against an initial file sample and conditionally recover field bytes preserved by `surrogateescape`
-- Composable rules: execute Patterns in order with a Validator and implement custom Patterns and Error handlers
+- Composable rules: execute Patterns in order with a Validator and implement custom Patterns
 
 ## Installation
 
@@ -136,7 +136,7 @@ result: list[str] = validator([
   "Seoul",
   "Gangnam",
   "2026-01-10",
-])
+], 1)
 assert result == ["Example", "Seoul,Gangnam", "2026-01-10"]
 ```
 
@@ -182,8 +182,8 @@ amount = Validator(
   Number(thousands=","),
   Range(minimum=0, maximum=1000000),
 )
-assert date(" 29/02/2024 ") == "2024-02-29"
-assert amount(" 1,234.500 ") == "1234.5"
+assert date(" 29/02/2024 ", 1, "date") == "2024-02-29"
+assert amount(" 1,234.500 ", 1, "amount") == "1234.5"
 ```
 
 - Date requires a year, month, and day. It does not infer years for values such as `1-10` or `Feb-23`. Distinct interpretations across formats are errors.
@@ -203,10 +203,10 @@ from csvd2c.column.patterns import (
 )
 
 currency = Currency({"VN$": "VND"})
-assert currency("CA$1,000") == "CAD 1,000"
-code, amount = currency("VN$ 10,000,000").split(" ", 1)
+assert currency("CA$1,000", 1, "amount") == "CAD 1,000"
+code, amount = currency("VN$ 10,000,000", 1, "amount").split(" ", 1)
 assert code == "VND"
-assert Number(thousands=",")(amount) == "10000000"
+assert Number(thousands=",")(amount, 1, "amount") == "10000000"
 assert "VND" in CURRENCY_CODES
 assert CURRENCY_ALIASES["VND"] == "VND"
 ```
@@ -239,7 +239,7 @@ validator = Validator(
 )
 raw: bytes = "홍길동".encode("cp949")
 preserved: str = raw.decode("utf-8", errors="surrogateescape")
-assert validator(preserved) == "홍길동"
+assert validator(preserved, 1, "name") == "홍길동"
 ```
 
 TryRecoverEncoding tries only values with U+DC80 through U+DCFF markers. Failure preserves input for the next candidate; successful results without markers are left unchanged by later candidates. ASCII fails in this example, allowing cp949 to handle it. Choose real candidates in provider-defined order. A permissive codec such as cp1258 can succeed even when it is incorrect.
@@ -250,11 +250,11 @@ Results are Unicode str, not UTF-8 bytes; encode at output. Already replaced cha
 
 ## Custom rules and error handling
 
-Row and column Pattern are abstract callable interfaces with `list[str] → list[str]` and `str → str` signatures. Validator passes each result to the next Pattern without intercepting exceptions.
+Row Pattern and Validator use `__call__(value: List[str], row: int) -> List[str]`; column implementations use `__call__(value: str, row: int, column: Union[int, str]) -> str`. Direct calls and existing custom Patterns must supply the new position arguments. CSV supplies them automatically for injected Validators. A line is the record's final physical line; a column identifier is a numeric index or configured name.
 
-Implementations that can reject data provide optional `error=` handlers. Row Error receives a copy and returns a replacement row or raises; column Error returns a replacement string or raises. Replacements are not automatically revalidated, so append required final checks. Constructor configuration errors propagate immediately. Insert, Slice, Pad, and Truncate do not accept error handlers.
+Validation failures raise `csvd2c.row.Error(message, row, value)` or `csvd2c.column.Error(message, row, column, value)`, both subclasses of `csvd2c.Error(Exception)`. `value` is the failing Pattern's input: a failure after `Strip → Required` carries `""`, not the earlier whitespace. The per-Pattern `error=` arguments have been removed, and data failures are no longer `ValueError`; handle them with `try`/`except`. Configuration errors remain immediate `TypeError` or `ValueError`. See [validation positions and error contracts](./docs/README.en.md#validation-positions-and-error-contracts) for migration.
 
-See complete [custom Pattern](./samples/custom_patterns.py) and [Error handler](./samples/custom_errors.py) examples. To log and continue past rejected records, separate original reads from validation as in the [rejection sample](./samples/reject_records.py). A rows() generator that raises a validation exception cannot be reused. Do not guess record boundaries and continue after parsing or decoding failures.
+See complete [custom Pattern](./samples/custom_patterns.py) and [error handling](./samples/custom_errors.py) examples. To log and continue, inject Validators directly into CSV, catch validation errors, and call `row()` again as in the [rejection sample](./samples/reject_records.py). The same rows() generator cannot resume after an exception. Do not guess record boundaries and continue after parsing or decoding failures.
 
 ## Important constraints
 
