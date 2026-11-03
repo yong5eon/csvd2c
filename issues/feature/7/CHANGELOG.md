@@ -35,6 +35,7 @@ with csv.open("input.csv"):
 ## 동작 변경
 
 - 데이터 검증 실패가 `ValueError` 대신 `csvd2c.row.Error` 또는 `csvd2c.column.Error`로 발생합니다. 생성자 설정 오류는 기존처럼 `TypeError`·`ValueError`입니다.
+- 행 검증 후 열 Validator가 지정한 위치의 값이 레코드에 없으면 `ValueError` 대신 `csvd2c.row.Error`가 발생합니다. 잡은 뒤 다음 `row()`로 계속 읽을 수 있습니다.
 - Pattern의 `error=` 인자와 호출형 Error 처리기를 제거했습니다. 기록·복구·건너뛰기는 `try`/`except`로 처리합니다.
 - 행 Pattern·Validator는 `(value, row)`, 열 Pattern·Validator는 `(value, row, column)`으로 호출합니다. CSV에 Validator를 주입하면 위치가 자동으로 전달됩니다.
 

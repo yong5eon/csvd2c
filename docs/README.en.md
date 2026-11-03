@@ -88,7 +88,7 @@ except Error as error:
   assert error.message == "A nonempty value is required"
 ```
 
-The per-Pattern `error=` arguments and callable Error handlers have been removed. Callers log, recover, or skip with `try`/`except`. Data validation failures are no longer `ValueError`; replace `except ValueError` with `csvd2c.row.Error`, `csvd2c.column.Error`, or the common `csvd2c.Error`. Configuration errors still raise `TypeError` or `ValueError` immediately.
+The per-Pattern `error=` arguments and callable Error handlers have been removed. Callers log, recover, or skip with `try`/`except`. Data validation failures are no longer `ValueError`; replace `except ValueError` with `csvd2c.row.Error`, `csvd2c.column.Error`, or the common `csvd2c.Error`. Configuration errors still raise `TypeError` or `ValueError` immediately. If a record lacks a position selected by a column Validator after row validation, `csvd2c.row.Error` is raised.
 
 Custom Patterns may raise these classes or their subclasses on failure, or return values without raising.
 
@@ -293,7 +293,7 @@ Callers choose the candidate order and final damage checks. See [column_recover_
 - Preserve original data and distinguish corrections and their reasons.
 - Do not guess ambiguous dates or damaged text.
 - Distinguish decoding, CSV parsing, structural, and column validation failures.
-- Callers implement classification and storage of accepted, corrected, and review-required data. [reject_records.py](../samples/reject_records.py) demonstrates logging rejected originals and reasons separately.
+- Callers implement classification and storage of accepted, corrected, and review-required data. [reject_records.py](../samples/reject_records.py) demonstrates logging rejected values and reasons separately.
 
 ## License
 

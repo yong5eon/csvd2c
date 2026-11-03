@@ -21,7 +21,10 @@ from typing import (
 if TYPE_CHECKING:
 	from _csv import Reader
 
-from .row import Validator as RowValidator
+from .row import (
+	Error as RowError,
+	Validator as RowValidator,
+)
 from .column import Validator as ColumnValidator
 
 __all__ = (
@@ -421,11 +424,13 @@ class CSV(object):
 			record = row(record, line)
 		for index, column, validator in indices:
 			if index >= len(record):
-				raise ValueError(
+				raise RowError(
 					'Column index {} is missing from a record with {} columns'.format(
 						index,
 						len(record),
-					)
+					),
+					line,
+					record,
 				)
 			record[index] = validator(record[index], line, column)
 		return record

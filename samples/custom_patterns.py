@@ -15,6 +15,7 @@ from csvd2c.column.patterns import (
 	Strip,
 )
 from csvd2c.row import (
+	Error as RowError,
 	Pattern as RowPattern,
 	Validator as RowValidator,
 )
@@ -43,6 +44,25 @@ class RemoveProviderPrefix(ColumnPattern):
 		return value[len(prefix):]
 
 
+class RejectComment(RowPattern):
+	"""
+	Reject provider comment records whose first field starts with '#'.
+	"""
+
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
+		if value and value[0].startswith('#'):
+			raise RowError(
+				'Comment records are not data',
+				row,
+				value,
+			)
+		return value
+
+
 class AppendSource(RowPattern):
 	"""
 	Add provenance without mutating the source record.
@@ -59,9 +79,9 @@ class AppendSource(RowPattern):
 def main() -> None:
 	with TemporaryDirectory() as directory:
 		path: Path = Path(directory) / 'input.csv'
-		path.write_text('name\nCompany: Example\nExample Ltd\n', encoding='utf-8')
+		path.write_text('name\nCompany: Example\nExample Ltd\n#provider note\n', encoding='utf-8')
 		csv: CSV = CSV(
-			row=RowValidator(Length(1), AppendSource(), Length(2)),
+			row=RowValidator(RejectComment(), Length(1), AppendSource(), Length(2)),
 			cols=(ColumnValidator(RemoveProviderPrefix(), Strip(), Required()),),
 		)
 		with csv.open(str(path)):
@@ -84,6 +104,14 @@ def main() -> None:
 				print('Rejected:', error.row, error.column, repr(error.value), error.message)
 			else:
 				raise AssertionError('Expected a column error')
+			try:
+				csv.row()
+			except RowError as error:
+				assert error.row == 4
+				assert error.value == ['#provider note']
+				print('Rejected row:', error.row, error.value, error.message)
+			else:
+				raise AssertionError('Expected a row error')
 	return
 
 

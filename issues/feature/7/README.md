@@ -12,8 +12,8 @@
 | 병합 대상 브랜치 | `master` |
 | 요구사항 | [요구사항 명세](./REQUIREMENTS.md) |
 | 계획 | [작업 계획](./PLAN.md) |
-| 구현 기록 | [종합 기록](./IMPLEMENTS.md) · [최신 단계별 기록](./implements/1793680367003.md) |
-| 작업 기록 | [종합 기록](./TASKS.md) · [최신 단계별 기록](./tasks/1793680367004.md) |
+| 구현 기록 | [종합 기록](./IMPLEMENTS.md) · [최신 단계별 기록](./implements/1793685462490.md) |
+| 작업 기록 | [종합 기록](./TASKS.md) · [최신 단계별 기록](./tasks/1793685462491.md) |
 | 변경 로그 | [CHANGELOG](./CHANGELOG.md) |
 
 ## 준비 현황

@@ -48,7 +48,7 @@ Direct row calls supply a line number; direct column calls supply a line number 
 | [row_merge_split.py](./row_merge_split.py) | `IfLength` and `Merge` for known comma-related damage, `Split` with `maxsplit` |
 | [reject_records.py](./reject_records.py) | Inject Validators directly into CSV, catch row/column `Error` exceptions, log inputs, lines, columns, and messages as JSONL, and resume with `row()` |
 | [custom_errors.py](./custom_errors.py) | Row/column `Error` exception attributes and custom exceptions derived from the common `Error` |
-| [custom_patterns.py](./custom_patterns.py) | Row/column `Pattern` inheritance, row-before-column processing, adding provenance |
+| [custom_patterns.py](./custom_patterns.py) | Row/column `Pattern` inheritance, custom row/column Patterns raising errors, row-before-column processing, adding provenance |
 
 ### Column cleansing and validation
 
@@ -70,7 +70,7 @@ Direct row calls supply a line number; direct column calls supply a line number 
 - `Merge`, `Pad`, defaults, and currency aliases are explicit provider policies in these samples, not safe automatic repairs for every irregular CSV. `Currency` handles only prefixes; split intervals using a separate policy.
 - `Date` requires year, month, and day. It does not invent years for `1-10` or `Feb-23`. `%b`/`%B` depend on the process locale, so date examples use numeric formats.
 - To continue after rejected records, separate reading from validation as in [reject_records.py](./reject_records.py). Do not reuse a `rows()` generator after a validation exception. Do not guess boundaries and continue after parsing or decoding errors. `row` is the last physical line number of the record.
-- Rejection logs contain original values. For actual customer data, check storage, access control, and de-identification policies.
+- Rejection logs contain the values that failed validation. For actual customer data, check storage, access control, and de-identification policies.
 - For large inputs, use streaming or bounded batches rather than `list(csv.rows())`. Batch limits count records, not bytes per record. Small synthetic validation is not an actual 200GB performance test.
 - Sample validation imports the installed `csvd2c` in isolated subprocesses from another working directory. Do not use `python -O`, which disables assertions.
 

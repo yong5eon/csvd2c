@@ -18,6 +18,7 @@ class Pattern(ABC):
 
 	Sample:
 	from operator import eq
+	from csvd2c.column import Error
 
 	class SamplePattern(Pattern):
 		def __init__(self, compare):

@@ -23,6 +23,7 @@ from unittest.mock import patch
 
 from csvd2c import CSV
 from csvd2c.row import (
+	Error as RowError,
 	Pattern as RowPattern,
 	Validator as RowValidator,
 )
@@ -403,11 +404,14 @@ class CSVTests(TestCase):
 		return
 
 	def test_missing_column_after_row_validation(self) -> None:
-		self.path.write_bytes(b'a\n')
+		self.path.write_bytes(b'a\nb,c\n')
 		csv = CSV(cols=(ColumnValidator(), ColumnValidator()))
 		with csv.open(str(self.path)):
-			with self.assertRaisesRegex(ValueError, 'index 1'):
+			with self.assertRaisesRegex(RowError, 'index 1') as context:
 				csv.row()
+			self.assertEqual(context.exception.row, 1)
+			self.assertEqual(context.exception.value, ['a'])
+			self.assertEqual(csv.row(), ['b', 'c'])
 		return
 
 	def test_column_count_not_implicitly_enforced(self) -> None:

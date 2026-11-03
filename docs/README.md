@@ -88,7 +88,7 @@ except Error as error:
   assert error.message == "A nonempty value is required"
 ```
 
-기존의 Pattern별 `error=` 인자와 호출형 Error 처리기는 제거했습니다. 기록·복구·건너뛰기는 호출자가 `try`/`except`로 처리합니다. 데이터 검증 실패는 더 이상 `ValueError`가 아니므로 `except ValueError`로 잡던 코드는 `csvd2c.row.Error`, `csvd2c.column.Error` 또는 공통 `csvd2c.Error`로 바꾸세요. 생성자 설정 오류는 기존처럼 `TypeError`·`ValueError`를 즉시 발생시킵니다.
+기존의 Pattern별 `error=` 인자와 호출형 Error 처리기는 제거했습니다. 기록·복구·건너뛰기는 호출자가 `try`/`except`로 처리합니다. 데이터 검증 실패는 더 이상 `ValueError`가 아니므로 `except ValueError`로 잡던 코드는 `csvd2c.row.Error`, `csvd2c.column.Error` 또는 공통 `csvd2c.Error`로 바꾸세요. 생성자 설정 오류는 기존처럼 `TypeError`·`ValueError`를 즉시 발생시킵니다. 행 검증 후 열 Validator가 지정한 위치의 값이 레코드에 없으면 `csvd2c.row.Error`가 발생합니다.
 
 사용자 정의 Pattern은 실패 시 같은 오류 클래스나 그 하위 클래스를 발생시킬 수 있습니다. 예외를 발생시키지 않고 값을 그대로 반환하는 Pattern도 허용합니다.
 
@@ -295,7 +295,7 @@ custom = Currency({"C$": "CAD"})
 - 원본을 보존하고, 보정한 값과 처리 사유를 구분할 수 있도록 합니다.
 - 모호한 날짜나 손상된 문자열을 임의로 추측하여 복구하지 않습니다.
 - 디코딩 오류, CSV 파싱 오류, 구조 오류와 컬럼 검증 실패를 구분하여 보고합니다.
-- 정상 결과, 보정 결과와 확인이 필요한 데이터의 분류·저장은 호출자가 구현합니다. [reject_records.py](../samples/reject_records.py)는 검증 실패의 원본과 이유를 별도 파일에 기록하는 예제입니다.
+- 정상 결과, 보정 결과와 확인이 필요한 데이터의 분류·저장은 호출자가 구현합니다. [reject_records.py](../samples/reject_records.py)는 검증에 실패한 값과 이유를 별도 파일에 기록하는 예제입니다.
 
 ## 라이선스
 
