@@ -9,8 +9,10 @@
 | 이슈 유형·레이블 | `feature` · 원본 이슈에 이미 적용된 레이블 확인 |
 | 작업 브랜치 | `feature/10` |
 | 기준 브랜치 | 로컬 `master` · `1e911433aa276f89d2bf03e4d696f837185f3f25` (`origin/master`와 동일) |
-| 병합 대상 브랜치 | 확인 필요 |
+| 병합 대상 브랜치 | `master` |
 | 관련 이슈 | [#9](https://github.com/yong5eon/csvd2c/issues/9) 읽기 범위 offset·limit (주입 규칙 참조) |
+| 요구사항 | [요구사항 명세](./REQUIREMENTS.md) |
+| 작업 기록 | [최신 단계별 기록](./tasks/1793689873912.md) |
 
 ## 준비 현황
 
