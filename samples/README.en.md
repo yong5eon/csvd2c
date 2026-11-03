@@ -6,7 +6,7 @@ These 24 standalone examples use the public csvd2c API, create small synthetic i
 
 ## Running
 
-Install the package with `pip install csvd2c` using Python 3.9 or later. Run the sample commands from the repository root containing the sample files.
+Install the package with `pip install csvd2c` using Python 3.10 or later. Run the sample commands from the repository root containing the sample files.
 
 ```shell
 pip install csvd2c
@@ -48,7 +48,7 @@ Direct row calls supply a line number; direct column calls supply a line number 
 | [row_structure.py](./row_structure.py) | `Length`, `Remove`, `Reorder`, `Insert`, `Replace`, `Slice`, preserving originals |
 | [row_padding.py](./row_padding.py) | `Truncate`/`Pad` only for confirmed trailing excess or missing columns |
 | [row_merge_split.py](./row_merge_split.py) | `IfLength` and `Merge` for known comma-related damage, `Split` with `maxsplit` |
-| [reject_records.py](./reject_records.py) | Inject Validators directly into CSV, catch row/column `Error` exceptions, log inputs, lines, columns, and messages as JSONL, and resume with `row()` |
+| [reject_records.py](./reject_records.py) | Inject Validators into CSV, log error inputs, lines, columns, messages, and all pre-validation fields from `raw()` as JSONL, and resume with `row()` |
 | [custom_errors.py](./custom_errors.py) | Row/column `Error` exception attributes and custom exceptions derived from the common `Error` |
 | [custom_patterns.py](./custom_patterns.py) | Row/column `Pattern` inheritance, custom row/column Patterns raising errors, row-before-column processing, adding provenance |
 
@@ -71,8 +71,8 @@ Direct row calls supply a line number; direct column calls supply a line number 
 - Apply encoding recovery before `Strip`, replacements, or Unicode normalization. `TryRecoverEncoding` does not detect languages; the first strict decoding success wins. Permissive candidates such as cp1258 may not distinguish the actual encoding. Bytes already replaced by `�` cannot be restored.
 - `Merge`, `Pad`, defaults, and currency aliases are explicit provider policies in these samples, not safe automatic repairs for every irregular CSV. `Currency` handles only prefixes; split intervals using a separate policy.
 - `Date` requires year, month, and day. It does not invent years for `1-10` or `Feb-23`. `%b`/`%B` depend on the process locale, so date examples use numeric formats.
-- To continue after rejected records, separate reading from validation as in [reject_records.py](./reject_records.py). Do not reuse a `rows()` generator after a validation exception. Do not guess boundaries and continue after parsing or decoding errors. `row` is the last physical line number of the record.
-- Rejection logs contain the values that failed validation. For actual customer data, check storage, access control, and de-identification policies.
+- To continue after rejected records, catch validation errors from `row()` inside the open context, save `raw()`, and read the next record as in [reject_records.py](./reject_records.py). Do not reuse a `rows()` generator after a validation exception. Do not guess boundaries and continue after parsing or decoding errors. `row` is the last physical line number of the record.
+- Rejection logs contain the values that failed validation and all pre-validation fields. For actual customer data, check storage, access control, and de-identification policies.
 - For large inputs, use streaming or bounded batches rather than `list(csv.rows())`. Batch limits count records, not bytes per record. Small synthetic validation is not an actual 200GB performance test.
 - Sample validation imports the installed `csvd2c` in isolated subprocesses from another working directory. Do not use `python -O`, which disables assertions.
 

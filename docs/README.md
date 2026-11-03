@@ -271,7 +271,7 @@ CSV에 Validator를 주입하면 CSV가 라인 번호와 열 식별자를 전달
 | `csvd2c.row.Error` | `csvd2c.Error` | `message, row, value: List[str]` | `message`, `row`, `value` |
 | `csvd2c.column.Error` | `csvd2c.Error` | `message, row, column, value: str` | `message`, `row`, `column`, `value` |
 
-`value`는 실패한 Pattern에 들어온 값입니다. `Strip`이 `"   "`을 `""`로 바꾼 뒤 `Required`가 실패하면 `value`는 `""`입니다. 파일 최초 값이나 체인 시작 값을 별도로 보존하지 않습니다. 행 변환 후 열 검증은 변경된 행에 적용하며 변환 전 필드로 역추적하지 않습니다. 위치를 식별할 수 없는 실패는 `csvd2c.Error`를 직접 발생시키거나 상속해 사용합니다.
+`value`는 실패한 Pattern에 들어온 값입니다. `Strip`이 `"   "`을 `""`로 바꾼 뒤 `Required`가 실패하면 `value`는 `""`입니다. 오류 객체는 파일 최초 값이나 체인 시작 값을 별도로 보존하지 않습니다. 검증 전 전체 필드는 CSV의 [raw()](#원문-레코드-조회)로 조회합니다. 행 변환 후 열 검증은 변경된 행에 적용하며 변환 전 필드로 역추적하지 않습니다. 위치를 식별할 수 없는 실패는 `csvd2c.Error`를 직접 발생시키거나 상속해 사용합니다.
 
 ```python
 from csvd2c.column import Error, Validator
@@ -293,12 +293,78 @@ except Error as error:
 
 ```mermaid
 flowchart LR
-  CSV["CSV: 레코드와 마지막 라인"] --> Row["행 Validator: 값·라인"]
+  CSV["CSV: 파싱된 레코드와 마지막 라인"] --> Snapshot["검증 전 필드 복사본 보존"]
+  Snapshot --> Row["행 Validator: 값·라인"]
   Row --> Col["열 Validator: 변경된 값·라인·열"]
   Col --> Pattern["Pattern: 현재 입력값"]
   Pattern -- 실패 --> Raise["row.Error / column.Error 발생"]
   Raise --> Caller["호출자 except: 기록·건너뛰기"]
 ```
+
+## 원문 레코드 조회
+
+`CSV.raw() -> Optional[List[str]]`는 가장 최근 데이터 읽기 시도에서 얻은 **검증 전 필드 목록**을 반환합니다. 디코딩과 CSV 파싱은 끝났지만 행·컬럼 Validator는 아직 적용되지 않은 값입니다. 검증 성공뿐 아니라 `RowError`·`ColumnError`가 발생했을 때도 해당 레코드를 조회할 수 있습니다. 오류 객체의 `value`와 Pattern 시그니처는 바뀌지 않습니다.
+
+호출할 때마다 새 목록을 반환하므로 반환값을 수정해도 내부 원문과 다음 조회는 바뀌지 않습니다. 성공한 `row()` 결과를 수정하거나 앞선 Pattern이 행 목록 자체를 바꿔도 원문은 유지됩니다. `raw()`는 레코드를 읽거나 검증하지 않으며, 빈 레코드 `[]`는 원문이 없는 `None`과 다릅니다.
+
+| 상황 | `raw()` 결과 |
+| --- | --- |
+| 생성 직후·open 후 데이터 읽기 전 | `None` |
+| `row()`·`rows()`에서 데이터 레코드를 읽고 검증 성공 또는 실패 | 해당 레코드의 검증 전 필드 복사본 |
+| 다음 읽기에서 EOF·limit 도달 또는 파싱·디코딩 실패 | `None` |
+| `close()`·컨텍스트 종료·재open 후 | `None` |
+
+헤더 Validator가 `open()`에서 소비한 헤더와 offset으로 건너뛴 레코드는 저장하지 않습니다. `header()` 조회는 현재 원문을 바꾸지 않습니다. 헤더 Validator가 없으면 첫 레코드도 일반 데이터로 취급합니다.
+
+`row()`와 `rows()`는 같은 원문 상태를 공유합니다. `rows()`를 생성하는 것만으로는 상태가 바뀌지 않습니다. 순회 본문에서 각 원문을 조회하세요. 마지막 레코드를 반환한 직후에는 원문이 있지만, `list(csv.rows())`처럼 정상 소진하면 마지막 EOF·limit 확인으로 `None`이 됩니다.
+
+`rows()`에서 검증 예외가 전파되면 실패 원문은 유지되지만 **동일 generator는 종료되어 재개할 수 없습니다**. 실패 후에도 계속 처리하려면 다음 예시처럼 `row()`를 반복 호출합니다. 예외 처리는 반드시 열린 `with` 안에서 해야 합니다. 컨텍스트 밖에서는 파일 종료와 함께 원문도 지워집니다.
+
+### 실패 원문을 CSV로 저장
+
+설치된 csvd2c 환경에서 실행할 수 있는 예시입니다. 임시 합성 입력을 만들고 공백으로만 이루어진 이름을 거부해 같은 구분자·escape 설정으로 저장합니다. 원본 입력을 덮어쓰지 않으며 임시 파일은 실행 후 정리됩니다.
+
+```python
+from csv import reader, writer
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from csvd2c import CSV
+from csvd2c.column import Error as ColumnError, Validator
+from csvd2c.column.patterns import Required, Strip
+from csvd2c.row import Error as RowError
+
+with TemporaryDirectory() as directory:
+  path = Path(directory) / "input.csv"
+  rejected = Path(directory) / "rejected.csv"
+  path.write_bytes(b'   \t"line one\nline two"\nok\tvalue\n')
+  csv = CSV(
+    delimiter="\t",
+    escapechar="\\",
+    column=(Validator(Strip(), Required()),),
+  )
+  with csv.open(str(path)), rejected.open("x", encoding="utf-8", newline="") as output:
+    dump = writer(output, delimiter=csv.delimiter, escapechar=csv.escapechar)
+    while True:
+      try:
+        record = csv.row()
+      except StopIteration:
+        break
+      except (RowError, ColumnError):
+        original = csv.raw()
+        assert original is not None
+        dump.writerow(original)
+      else:
+        print(record)
+  with rejected.open(encoding="utf-8", newline="") as saved:
+    fields = list(reader(saved, delimiter="\t", escapechar="\\"))
+  assert fields == [["   ", "line one\nline two"]]
+```
+
+정상 레코드 `['ok', 'value']`가 출력됩니다. 저장된 실패 레코드는 `Strip`으로 바뀐 빈 문자열이 아니라 원래 공백과 개행 필드를 유지합니다. 오류 위치·메시지와 원문을 함께 JSONL로 기록하는 방법은 [거부 기록 샘플](../samples/reject_records.py)을 참고하세요.
+
+원문은 파일의 줄 텍스트나 바이트가 아닙니다. 같은 dialect의 `csv.writer`로 쓰고 다시 읽으면 필드 값은 왕복하지만, 따옴표나 escape 표기는 원본과 달라질 수 있습니다. 인코딩·오류 처리·개행 설정도 저장할 문자열에 맞게 지정해야 합니다. 파싱·디코딩 실패에는 완성된 레코드가 없어 `None`이며, 자동 복구하거나 이전 레코드로 대신하지 않습니다.
+
+이 기능부터 Python 3.10 이상을 지원합니다. Python 3.9의 표준 writer에서 필드 내 escape 문자가 손실되는 [CPython 오류 #56387](https://github.com/python/cpython/issues/56387)가 확인되어 최소 버전을 높였습니다. Python 3.9 환경은 업그레이드 후 사용하세요. csvd2c에 별도 writer 우회 구현은 추가하지 않았습니다.
 
 ## 행 구조 Pattern
 

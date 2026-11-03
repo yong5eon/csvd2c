@@ -7,6 +7,7 @@ csvd2c stands for **CSV Dirty to Clean**. It provides streaming reads and compos
 - Read records incrementally as lists.
 - Validate the header record with an injected header Validator.
 - Read a range of records with `offset` and `limit` on the constructor or `open()`.
+- Retrieve pre-validation fields with `raw()`, including records rejected by validation.
 - Validate and transform row structures and individual column values.
 - Normalize whitespace, Unicode, dates, numbers, and currency prefixes.
 - Check encoding candidates against a file sample and recover preserved field bytes conditionally.
@@ -14,7 +15,7 @@ csvd2c stands for **CSV Dirty to Clean**. It provides streaming reads and compos
 
 ## Installation
 
-Requires Python 3.9 or later.
+Requires Python 3.10 or later for correct escaping of field escape characters by the standard `csv.writer`.
 
 ```shell
 pip install csvd2c

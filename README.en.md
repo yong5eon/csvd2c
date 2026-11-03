@@ -11,6 +11,7 @@ csvd2c stands for **CSV Dirty to Clean**, a Python library for streaming reads a
 - Streaming CSV/TSV reads: decode binary input for parsing and return one record at a time as a list
 - Header validation: validate the first record as the header on `open()`, including empty, duplicate, listed, and ordered names
 - Read range: select the records to read with `offset` and `limit` on the constructor and `open()`
+- Raw record access: use `raw()` to get a copy of pre-validation fields and preserve rejected records
 - Row cleansing: validate counts, insert, remove, reorder, merge, split, and check empty records or repeated headers
 - Column cleansing: normalize whitespace and Unicode, validate and map values, and standardize dates, numbers, and currency prefixes
 - Encoding handling: check candidates against an initial file sample and conditionally recover field bytes preserved by `surrogateescape`
@@ -18,7 +19,7 @@ csvd2c stands for **CSV Dirty to Clean**, a Python library for streaming reads a
 
 ## Installation
 
-Requires Python 3.9 or later.
+Requires Python 3.10 or later. The minimum was raised because Python 3.9's standard `csv.writer` does not correctly preserve escape characters within fields during CSV round trips.
 
 ```shell
 pip install csvd2c
@@ -75,6 +76,7 @@ Because a header Validator is injected, `open()` reads the first record as the h
 
 - With a header Validator in `header=`, `open()` reads and validates the first record as the header. Failure raises `csvd2c.header.Error` and closes the file. Without one, `open()` reads no record.
 - `header()` reads no record and returns a copy of the validated header, or `None` without header validation.
+- `raw()` returns a copy of the last data record's pre-validation fields. It returns `None` initially, after a read produces no record, and after closing. See [raw record access](./docs/README.en.md#raw-record-access) for update rules and a dump example.
 - `row()` returns the next record and `rows()` streams the remainder, both as lists. Without a header Validator, the first result of a file with a header is the header record.
 - Row validation runs before column validation. Dictionary `column` uses names from the validated header; tuple `column` applies to the specified leading columns.
 - Method-level `row=` and `column=` override settings for that call; `open()`'s `header=` applies only to that file. Omitted arguments or `None` retain constructor settings.

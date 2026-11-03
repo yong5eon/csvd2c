@@ -85,6 +85,7 @@ class CSV(object):
 		self.reader: Optional['Reader'] = None
 		self.text: Optional[TextIOWrapper] = None
 		self.header_data: Optional[List[str]] = None
+		self.raw_data: Optional[List[str]] = None
 		self.skip: int = 0
 		self.remaining: Optional[int] = None
 		return
@@ -152,6 +153,7 @@ class CSV(object):
 				strict=self.strict,
 			)
 			self.header_data = None
+			self.raw_data = None
 			self.skip = skip
 			self.remaining = remaining
 			self.text = text
@@ -166,7 +168,7 @@ class CSV(object):
 
 	def close(self) -> None:
 		"""
-		Close the current stream and invalidate its readers, header, and range.
+		Close the stream and invalidate its readers, header, raw record, and range.
 
 		Repeated calls are safe. Stream closing errors propagate, and context
 		exit also closes the stream automatically.
@@ -179,6 +181,7 @@ class CSV(object):
 			self.text = None
 			self.reader = None
 			self.header_data = None
+			self.raw_data = None
 			self.skip = 0
 			self.remaining = None
 		return
@@ -193,6 +196,20 @@ class CSV(object):
 		if self.header_data is None:
 			return None
 		return self.header_data.copy()
+
+	def raw(self) -> Optional[List[str]]:
+		"""
+		Return a copy of the last data record before row and column validation.
+
+		The fields are decoded and CSV-parsed, not the original file text.
+		Validation failures retain the record. A read attempt that produces no
+		record (EOF, limit, parsing or decoding error) clears it. Header reads
+		and offset records are excluded. Before reading, after close(), and
+		on reopen, return None. Empty records return an empty list.
+		"""
+		if self.raw_data is None:
+			return None
+		return self.raw_data.copy()
 
 	def row(
 		self,
@@ -211,6 +228,7 @@ class CSV(object):
 		StopIteration is also raised when the read range limit is reached.
 		None uses the constructor setting. Overrides apply only to this call.
 		Validation failures propagate after the record has been consumed.
+		raw() retains the fields before validation, including on failure.
 		"""
 		source: 'Reader' = self.require_reader()
 		row_validator, column_validators = self.resolve_validators(row, column)
@@ -238,6 +256,10 @@ class CSV(object):
 		Overrides are captured when this method is called. The iterator must
 		be consumed inside the open context and cannot be reused after the
 		file is closed or reopened.
+
+		Read raw() inside the loop for each record. Normal exhaustion clears
+		it; a validation exception retains the failed record but terminates
+		this generator. Use repeated row() calls to handle failures and continue.
 		"""
 		source: 'Reader' = self.require_reader()
 		row_validator, column_validators = self.resolve_validators(row, column)
@@ -266,12 +288,14 @@ class CSV(object):
 		Skipped records are not validated, and decoding or parsing errors
 		propagate. A returned record counts toward the limit before validation.
 		"""
+		self.raw_data = None
 		if self.remaining == 0:
 			raise StopIteration
 		while self.skip > 0:
 			next(source)
 			self.skip -= 1
 		record: List[str] = next(source)
+		self.raw_data = record.copy()
 		if self.remaining is not None:
 			self.remaining -= 1
 		return record
