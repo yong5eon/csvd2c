@@ -8,7 +8,8 @@ csvd2c는 **CSV Dirty to Clean**의 약자로, 불규칙한 CSV·TSV 데이터�
 
 ## 주요 기능
 
-- CSV·TSV 순차 읽기: 바이너리 파일을 텍스트로 디코딩해 파싱하고, list 또는 dict로 한 레코드씩 반환
+- CSV·TSV 순차 읽기: 바이너리 파일을 텍스트로 디코딩해 파싱하고, list로 한 레코드씩 반환
+- 헤더 검증: `open()` 시 첫 레코드를 헤더로 검증, 빈·중복 이름과 이름 목록·순서 검사
 - 행 정제: 컬럼 수 검사, 삽입·제거·재배치·병합·분리, 반복 헤더와 빈 행 검사
 - 컬럼 정제: 공백·Unicode 정규화, 값 검증·매핑, 날짜·숫자·통화 표기 통일
 - 인코딩 처리: 파일 앞부분의 후보 검사와 `surrogateescape`로 보존한 필드 바이트의 조건부 복구
@@ -41,61 +42,65 @@ from csvd2c.column.patterns import (
   Required,
   Strip,
 )
+from csvd2c.header import Validator as HeaderValidator
+from csvd2c.header.patterns import ExactOrder
 from csvd2c.row import Validator as RowValidator
 from csvd2c.row.patterns import Length
 
 csv = CSV(
   encoding="utf-8",
+  header=HeaderValidator(ExactOrder("name", "date")),
   row=RowValidator(Length(2)),
-  cols={"name": Validator(Strip(), Required())},
+  column={"name": Validator(Strip(), Required())},
 )
 
 with csv.open("input.csv"):
-  header: list[str] = csv.header()
-  for record in csv.rows(header=header):
+  print(csv.header())
+  for record in csv.rows():
     print(record)
 ```
 
 기대 출력:
 
 ```text
-{'name': 'Example', 'date': '2026-01-10'}
-{'name': 'Sample', 'date': '2026-02-23'}
+['name', 'date']
+['Example', '2026-01-10']
+['Sample', '2026-02-23']
 ```
 
-`open()`은 헤더를 자동으로 읽지 않습니다. `header()`로 첫 레코드를 소비한 뒤 `rows()`로 나머지를 읽습니다. 이름 기반 `cols`에 지정한 `name`은 헤더에 정확히 한 번 있어야 합니다. 날짜는 별도 `Date` 규칙을 넣지 않았으므로 원문 문자열로 유지됩니다. TSV는 `CSV(delimiter="\t")`로 설정합니다.
+헤더 Validator를 주입했으므로 `open()`이 첫 레코드를 헤더로 읽고 `name,date` 순서인지 검증합니다. `header()`는 검증된 헤더를 반환하고 `rows()`는 나머지 레코드를 읽습니다. 이름 기반 `column`에 지정한 `name`은 헤더에 정확히 한 번 있어야 합니다. 날짜는 별도 `Date` 규칙을 넣지 않았으므로 원문 문자열로 유지됩니다. TSV는 `CSV(delimiter="\t")`로 설정합니다.
 
 ## 사용 규칙
 
-- `open()`은 파일을 열기만 하며 첫 레코드를 자동으로 소비하지 않습니다. 열린 `with` 블록 안에서 읽기를 수행하세요.
-- `header()`는 다음 원본 레코드를 소비하여 파일 헤더로 저장합니다. 반복 호출하면 그다음 레코드를 소비합니다.
-- `row()`는 다음 레코드 하나를, `rows()`는 남은 레코드를 순차적으로 반환합니다. 기본 반환값은 list이고 `header=`를 지정하면 검증된 값을 위치순으로 연결한 dict를 반환합니다.
-- `row` Validator를 먼저 실행하고 그 결과에 `cols` Validator를 적용합니다. `cols`가 dict이면 `header()`로 읽은 이름 기준, tuple이면 앞쪽 컬럼부터 적용합니다.
-- `row()`·`rows()`의 `row=`·`cols=`는 해당 호출의 설정을 교체합니다. 생략하거나 `None`을 전달하면 생성자 설정을 유지합니다.
-- `row()`와 `header()`는 파일 끝에서 `StopIteration`을 발생시키며, `rows()`는 정상 종료합니다.
+- `header=`에 헤더 Validator를 주입하면 `open()`이 첫 레코드를 헤더로 읽어 검증합니다. 실패하면 `csvd2c.header.Error`가 발생하고 파일이 닫힙니다. 주입하지 않으면 `open()`은 레코드를 읽지 않습니다.
+- `header()`는 레코드를 읽지 않고 검증된 헤더의 복사본을 반환합니다. 헤더 검증을 하지 않았으면 `None`입니다.
+- `row()`는 다음 레코드 하나를, `rows()`는 남은 레코드를 list로 순차 반환합니다. 헤더 Validator 없이 헤더가 있는 파일을 읽으면 첫 결과는 헤더 레코드입니다.
+- `row` Validator를 먼저 실행하고 그 결과에 `column` Validator를 적용합니다. `column`이 dict이면 검증된 헤더의 이름 기준, tuple이면 앞쪽 컬럼부터 적용합니다.
+- `row()`·`rows()`의 `row=`·`column=`는 해당 호출의 설정을 교체합니다. `open()`의 `header=`는 그 파일에만 적용됩니다. 생략하거나 `None`을 전달하면 생성자 설정을 사용합니다.
+- `row()`는 파일 끝에서 `StopIteration`을 발생시키며, `rows()`는 정상 종료합니다.
 - `close()` 또는 컨텍스트 종료 후에는 기존 generator를 사용할 수 없습니다. 파일을 다시 열었다면 새로 `rows()`를 호출하세요.
 
-설정별 제약과 상세 동작은 [사용 규칙 상세 설명](./docs/README.md#사용-규칙)을 참고하세요.
+헤더 Pattern, 이름 변경과 이전 사용법의 마이그레이션은 [헤더 검증](./docs/README.md#헤더-검증)을, 설정별 제약과 상세 동작은 [사용 규칙 상세 설명](./docs/README.md#사용-규칙)을 참고하세요.
 
 ### 읽기 설정과 반환값
 
-`CSV`의 기본 설정은 `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, `strict=True`입니다. `open(path, mode="rb")`는 `rb`·`r`·`rt`만 지원합니다. 바이너리 모드에서는 `TextIOWrapper`로 디코딩하며, 텍스트 모드도 같은 인코딩·오류·개행 설정을 적용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다.
+`CSV`의 기본 설정은 `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, `strict=True`입니다. `open(path, mode="rb", header=None)`는 `rb`·`r`·`rt`만 지원합니다. 바이너리 모드에서는 `TextIOWrapper`로 디코딩하며, 텍스트 모드도 같은 인코딩·오류·개행 설정을 적용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다.
 
-`header=`는 파일 헤더를 바꾸는 옵션이 아니라 **최종 검증된 값에 위치순으로 키를 붙이는 옵션**입니다. 중복 키나 검증 후 컬럼 수 불일치는 오류입니다. 생략하거나 `None`이면 list를 반환합니다.
+`row()`·`rows()`는 항상 list를 반환합니다. dict가 필요하면 검증된 헤더와 직접 연결합니다.
 
 ```python
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 
-with CSV().open("input.csv") as csv:
-  file_header: list[str] = csv.header()
-  first: list[str] = csv.row()
-  for record in csv.rows(header=("company", "raw_date")):
-    print(record)
+with CSV(header=HeaderValidator()).open("input.csv") as csv:
+  header = csv.header() or []
+  for record in csv.rows():
+    print(dict(zip(header, record)))
 ```
 
-이 예제는 빠른 시작의 2컬럼 파일을 사용합니다. 출력 키를 바꾸어도 파일 헤더나 이름 기반 `cols` 매핑은 바뀌지 않습니다. `cols`의 이름이 파일 헤더에 없거나 중복되면 오류이며, tuple 설정은 지정한 앞쪽 컬럼만 처리합니다. 생성자 설정을 사용하지 않으려면 호출별 `cols={}` 또는 `cols=()`를 명시합니다.
+`column`의 이름이 검증된 헤더에 없거나 중복되면 오류이며, tuple 설정은 지정한 앞쪽 컬럼만 처리합니다. 생성자 설정을 사용하지 않으려면 호출별 `column={}` 또는 `column=()`를 명시합니다.
 
-`close()`는 스트림과 헤더·읽기 상태를 초기화하며 반복 호출해도 안전합니다. `rows()`는 호출 시 검증 설정과 헤더 매핑을 선택하므로, 헤더 변경·닫기·재개 이후에는 기존 generator를 사용할 수 없습니다.
+`close()`는 스트림과 헤더·읽기 상태를 초기화하며 반복 호출해도 안전합니다. `rows()`는 호출 시 검증 설정과 헤더 매핑을 선택하므로, 닫기·재개 이후에는 기존 generator를 사용할 수 없습니다.
 
 ## 행 구조 Pattern
 

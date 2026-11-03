@@ -1,6 +1,8 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.column import Validator
 from csvd2c.column.patterns import (
 	IfUndecodable,
@@ -25,7 +27,8 @@ def main() -> None:
 		csv: CSV = CSV(
 			encoding='utf-8',
 			errors='surrogateescape',
-			cols={
+			header=HeaderValidator(),
+			column={
 				'description': Validator(
 					IfUndecodable(RecoverEncoding('cp1258')),
 					RejectSurrogates(),
@@ -34,8 +37,10 @@ def main() -> None:
 			},
 		)
 		with csv.open(str(path)):
-			header: list[str] = csv.header()
-			for record in csv.rows(header=header):
+			header: Optional[list[str]] = csv.header()
+			assert header is not None
+			for values in csv.rows():
+				record: dict[str, str] = dict(zip(header, values))
 				assert record['description'] == 'Công ty'
 				print(ascii(record))
 		korean: str = '홍길동'.encode('cp949').decode('utf-8', errors='surrogateescape')

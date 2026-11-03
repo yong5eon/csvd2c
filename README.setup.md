@@ -4,7 +4,8 @@ csvd2c stands for **CSV Dirty to Clean**. It provides streaming reads and compos
 
 ## Features
 
-- Read records incrementally as lists or dictionaries.
+- Read records incrementally as lists.
+- Validate the header record with an injected header Validator.
 - Validate and transform row structures and individual column values.
 - Normalize whitespace, Unicode, dates, numbers, and currency prefixes.
 - Check encoding candidates against a file sample and recover preserved field bytes conditionally.
@@ -34,28 +35,32 @@ from csvd2c.column.patterns import (
   Required,
   Strip,
 )
+from csvd2c.header import Validator as HeaderValidator
+from csvd2c.header.patterns import ExactOrder
 from csvd2c.row import Validator as RowValidator
 from csvd2c.row.patterns import Length
 
 csv = CSV(
   encoding="utf-8",
+  header=HeaderValidator(ExactOrder("name", "date")),
   row=RowValidator(Length(2)),
-  cols={"name": Validator(Strip(), Required())},
+  column={"name": Validator(Strip(), Required())},
 )
 
 with csv.open("input.csv"):
-  header: list[str] = csv.header()
-  for record in csv.rows(header=header):
+  print(csv.header())
+  for record in csv.rows():
     print(record)
 ```
 
 Expected output:
 
 ```text
-{'name': 'Example', 'date': '2026-01-10'}
+['name', 'date']
+['Example', '2026-01-10']
 ```
 
-`header()` consumes the first record explicitly; `rows()` streams the remainder. Named validation requires exactly one matching header column. Dates remain strings unless a Date Pattern is configured. For TSV, use `CSV(delimiter="\t")`.
+The header Validator makes `open()` read and validate the first record as the header; `header()` returns it and `rows()` streams the remainder as lists. Named validation requires exactly one matching header column. Dates remain strings unless a Date Pattern is configured. For TSV, use `CSV(delimiter="\t")`.
 
 ## Constraints
 

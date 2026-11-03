@@ -13,6 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import (
 	List,
+	Optional,
 	Union,
 )
 from unittest import (
@@ -22,6 +23,7 @@ from unittest import (
 from unittest.mock import patch
 
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.row import (
 	Error as RowError,
 	Pattern as RowPattern,
@@ -117,15 +119,15 @@ class CSVTests(TestCase):
 		self.path.write_bytes(b'name,note\n a , b \nc,d\n')
 		return
 
-	def test_header_consumes_next_record(self) -> None:
-		csv = CSV()
+	def test_header_returns_stored_copy_without_consuming(self) -> None:
+		csv = CSV(header=HeaderValidator())
 		with csv.open(str(self.path)) as opened:
 			self.assertIs(opened, csv)
 			self.assertEqual(csv.header(), ['name', 'note'])
-			self.assertEqual(csv.header(), [' a ', ' b '])
+			self.assertEqual(csv.header(), ['name', 'note'])
+			self.assertEqual(csv.row(), [' a ', ' b '])
 			self.assertEqual(csv.row(), ['c', 'd'])
-			with self.assertRaises(StopIteration):
-				csv.header()
+			self.assertEqual(csv.header(), ['name', 'note'])
 		return
 
 	def test_read_modes_preserve_decoding_and_csv_newlines(self) -> None:
@@ -136,9 +138,11 @@ class CSVTests(TestCase):
 			'rt',
 		):
 			with self.subTest(mode=mode):
-				csv = CSV(encoding='cp949')
+				csv = CSV(
+					encoding='cp949',
+					header=HeaderValidator(),
+				)
 				with csv.open(str(self.path), mode):
-					csv.header()
 					self.assertEqual(csv.row(), ['홍길동', 'a\r\nb'])
 					csv.close()
 				with self.assertRaises(RuntimeError):
@@ -182,6 +186,7 @@ class CSVTests(TestCase):
 					delimiter='\t',
 					escapechar='\\',
 					strict=True,
+					header=HeaderValidator(),
 				)
 				self.assertEqual(csv.escapechar, '\\')
 				with csv.open(str(self.path), mode):
@@ -196,7 +201,7 @@ class CSVTests(TestCase):
 			escapechar='\\',
 			strict=True,
 			row=RowValidator(Reverse()),
-			cols=(ColumnValidator(Strip()),),
+			column=(ColumnValidator(Strip()),),
 		)
 		with csv.open(str(self.path)):
 			self.assertEqual(csv.row(), ['Acme "quoted"', '1'])
@@ -204,7 +209,7 @@ class CSVTests(TestCase):
 
 	def test_escapechar_defaults_to_none_and_preserves_doublequote(self) -> None:
 		self.path.write_bytes(b'id,name\n1,"Acme ""quoted"" name"\n')
-		csv = CSV()
+		csv = CSV(header=HeaderValidator())
 		self.assertIsNone(csv.escapechar)
 		with csv.open(str(self.path)):
 			self.assertEqual(csv.header(), ['id', 'name'])
@@ -235,92 +240,38 @@ class CSVTests(TestCase):
 				self.assertEqual(self.path.read_bytes(), original)
 		return
 
-	def test_explicit_header_maps_without_consuming_file_header(self) -> None:
-		csv = CSV()
-		with csv.open(str(self.path)):
-			self.assertEqual(
-				csv.row(header=('first', 'second')),
-				{'first': 'name', 'second': 'note'},
-			)
-			self.assertEqual(csv.row(), [' a ', ' b '])
-		return
-
-	def test_dictionary_stream_and_validation_order(self) -> None:
+	def test_stream_and_validation_order(self) -> None:
 		csv = CSV(
+			header=HeaderValidator(),
 			row=RowValidator(Reverse()),
-			cols=(ColumnValidator(Strip()),),
+			column=(ColumnValidator(Strip()),),
 		)
 		with csv.open(str(self.path)):
-			csv.header()
 			self.assertEqual(
-				list(csv.rows(header=('first', 'second'))),
+				list(csv.rows()),
 				[
-					{'first': 'b', 'second': ' a '},
-					{'first': 'd', 'second': 'c'},
+					['b', ' a '],
+					['d', 'c'],
 				],
 			)
 		return
 
-	def test_output_header_is_copied(self) -> None:
-		csv = CSV()
-		with csv.open(str(self.path)):
-			header: List[str] = ['first', 'second']
-			rows = csv.rows(header=header)
-			header[0] = 'changed'
-			self.assertEqual(next(rows), {'first': 'name', 'second': 'note'})
-		return
-
-	def test_invalid_output_header_does_not_consume_record(self) -> None:
-		csv = CSV()
-		with csv.open(str(self.path)):
-			with self.assertRaises(ValueError):
-				csv.row(header=('name', 'name'))
-			with self.assertRaises(TypeError):
-				csv.rows(header='name')
-			self.assertEqual(csv.row(), ['name', 'note'])
-		return
-
-	def test_output_header_length_mismatch(self) -> None:
-		for header in (
-			('one',),
-			('one', 'two', 'three'),
-		):
-			with self.subTest(header=header):
-				csv = CSV()
-				with csv.open(str(self.path)):
-					with self.assertRaisesRegex(ValueError, 'validated record'):
-						csv.row(header=header)
-		return
-
-	def test_empty_output_header_maps_empty_record(self) -> None:
-		self.path.write_bytes(b'\n')
-		csv = CSV()
-		with csv.open(str(self.path)):
-			self.assertEqual(csv.row(header=()), {})
-		return
-
-	def test_output_header_does_not_change_named_validator_mapping(self) -> None:
-		csv = CSV(cols={'name': ColumnValidator(Strip())})
-		with csv.open(str(self.path)):
-			csv.header()
-			self.assertEqual(
-				csv.row(header=('person', 'description')),
-				{'person': 'a', 'description': ' b '},
-			)
-		return
-
 	def test_header_return_is_a_copy(self) -> None:
-		csv = CSV(cols={'name': ColumnValidator(Strip())})
+		csv = CSV(
+			header=HeaderValidator(),
+			column={'name': ColumnValidator(Strip())},
+		)
 		with csv.open(str(self.path)):
-			header: List[str] = csv.header()
+			header: Optional[List[str]] = csv.header()
+			assert header is not None
 			header[0] = 'changed'
+			self.assertEqual(csv.header(), ['name', 'note'])
 			self.assertEqual(csv.row(), ['a', ' b '])
 		return
 
 	def test_rows_and_row_share_position(self) -> None:
-		csv = CSV()
+		csv = CSV(header=HeaderValidator())
 		with csv.open(str(self.path)):
-			csv.header()
 			self.assertEqual(csv.row(), [' a ', ' b '])
 			self.assertEqual(list(csv.rows()), [['c', 'd']])
 			self.assertEqual(list(csv.rows()), [])
@@ -335,11 +286,15 @@ class CSVTests(TestCase):
 		return
 
 	def test_named_columns_require_header(self) -> None:
-		csv = CSV(cols={'name': ColumnValidator(Strip())})
+		csv = CSV(column={'name': ColumnValidator(Strip())})
 		with csv.open(str(self.path)):
-			with self.assertRaisesRegex(RuntimeError, 'header'):
+			self.assertIsNone(csv.header())
+			with self.assertRaisesRegex(RuntimeError, 'Inject a header Validator'):
 				csv.rows()
-			csv.header()
+			with self.assertRaisesRegex(RuntimeError, 'Inject a header Validator'):
+				csv.row()
+			self.assertEqual(csv.row(column=()), ['name', 'note'])
+		with csv.open(str(self.path), header=HeaderValidator()):
 			self.assertEqual(csv.row(), ['a', ' b '])
 		return
 
@@ -350,54 +305,65 @@ class CSVTests(TestCase):
 		):
 			with self.subTest(header=header):
 				self.path.write_bytes(header + b'a,b\n')
-				csv = CSV(cols={'name': ColumnValidator(Strip())})
+				csv = CSV(
+					header=HeaderValidator(),
+					column={'name': ColumnValidator(Strip())},
+				)
 				with csv.open(str(self.path)):
-					csv.header()
 					with self.assertRaisesRegex(ValueError, 'exactly once'):
 						csv.row()
 		return
 
 	def test_tuple_only_validates_prefix(self) -> None:
-		csv = CSV(cols=(ColumnValidator(Strip()),))
+		csv = CSV(
+			header=HeaderValidator(),
+			column=(ColumnValidator(Strip()),),
+		)
 		with csv.open(str(self.path)):
-			csv.header()
 			self.assertEqual(csv.row(), ['a', ' b '])
 		return
 
 	def test_row_runs_before_columns(self) -> None:
 		csv = CSV(
+			header=HeaderValidator(),
 			row=RowValidator(Reverse()),
-			cols=(ColumnValidator(Strip(), Upper()),),
+			column=(ColumnValidator(Strip(), Upper()),),
 		)
 		with csv.open(str(self.path)):
-			csv.header()
 			self.assertEqual(csv.row(), ['B', ' a '])
 		return
 
 	def test_row_overrides_do_not_change_defaults(self) -> None:
-		csv = CSV(row=RowValidator(Reverse()))
+		csv = CSV(
+			header=HeaderValidator(),
+			row=RowValidator(Reverse()),
+		)
 		with csv.open(str(self.path)):
-			csv.header()
 			self.assertEqual(csv.row(row=RowValidator()), [' a ', ' b '])
 			self.assertEqual(csv.row(), ['d', 'c'])
 		return
 
 	def test_column_overrides_and_none_use_defaults(self) -> None:
-		csv = CSV(cols=(ColumnValidator(Upper()),))
+		csv = CSV(
+			header=HeaderValidator(),
+			column=(ColumnValidator(Upper()),),
+		)
 		with csv.open(str(self.path)):
-			csv.header()
 			self.assertEqual(
-				csv.row(cols=(ColumnValidator(Strip()),)),
+				csv.row(column=(ColumnValidator(Strip()),)),
 				['a', ' b '],
 			)
-			self.assertEqual(csv.row(cols=None), ['C', 'd'])
+			self.assertEqual(csv.row(column=None), ['C', 'd'])
 		return
 
 	def test_rows_overrides_and_constructor_unchanged(self) -> None:
-		csv = CSV(row=RowValidator(Reverse()), cols=(ColumnValidator(Upper()),))
+		csv = CSV(
+			header=HeaderValidator(),
+			row=RowValidator(Reverse()),
+			column=(ColumnValidator(Upper()),),
+		)
 		with csv.open(str(self.path)):
-			csv.header()
-			rows = csv.rows(row=RowValidator(), cols=(ColumnValidator(Strip()),))
+			rows = csv.rows(row=RowValidator(), column=(ColumnValidator(Strip()),))
 			self.assertEqual(next(rows), ['a', ' b '])
 			rows.close()
 			self.assertEqual(csv.row(), ['D', 'c'])
@@ -405,7 +371,7 @@ class CSVTests(TestCase):
 
 	def test_missing_column_after_row_validation(self) -> None:
 		self.path.write_bytes(b'a\nb,c\n')
-		csv = CSV(cols=(ColumnValidator(), ColumnValidator()))
+		csv = CSV(column=(ColumnValidator(), ColumnValidator()))
 		with csv.open(str(self.path)):
 			with self.assertRaisesRegex(RowError, 'index 1') as context:
 				csv.row()
@@ -416,21 +382,20 @@ class CSVTests(TestCase):
 
 	def test_column_count_not_implicitly_enforced(self) -> None:
 		self.path.write_bytes(b'a,b\nx,y,z\n')
-		csv = CSV()
+		csv = CSV(header=HeaderValidator())
 		with csv.open(str(self.path)):
-			csv.header()
 			self.assertEqual(csv.row(), ['x', 'y', 'z'])
 		return
 
 	def test_validator_errors_propagate(self) -> None:
-		csv = CSV(cols=(ColumnValidator(Reject()),))
+		csv = CSV(column=(ColumnValidator(Reject()),))
 		with csv.open(str(self.path)):
 			with self.assertRaisesRegex(ColumnError, 'Rejected value'):
 				next(csv.rows())
 		return
 
 	def test_validator_stop_iteration_is_not_eof(self) -> None:
-		csv = CSV(cols=(ColumnValidator(Stop()),))
+		csv = CSV(column=(ColumnValidator(Stop()),))
 		with csv.open(str(self.path)):
 			with self.assertRaisesRegex(RuntimeError, 'generator raised StopIteration'):
 				next(csv.rows())
@@ -449,7 +414,11 @@ class CSVTests(TestCase):
 		self.path.write_bytes(
 			'name\tnote\r\nKim\t"a\tb\r\nc"\r\n'.encode('utf-8-sig')
 		)
-		csv = CSV(encoding='utf-8-sig', delimiter='\t')
+		csv = CSV(
+			encoding='utf-8-sig',
+			delimiter='\t',
+			header=HeaderValidator(),
+		)
 		with csv.open(str(self.path)):
 			self.assertEqual(csv.header(), ['name', 'note'])
 			self.assertEqual(csv.row(), ['Kim', 'a\tb\r\nc'])
@@ -457,7 +426,10 @@ class CSVTests(TestCase):
 
 	def test_cp949(self) -> None:
 		self.path.write_bytes('이름\n홍길동\n'.encode('cp949'))
-		csv = CSV(encoding='cp949')
+		csv = CSV(
+			encoding='cp949',
+			header=HeaderValidator(),
+		)
 		with csv.open(str(self.path)):
 			self.assertEqual(csv.header(), ['이름'])
 			self.assertEqual(csv.row(), ['홍길동'])
@@ -470,8 +442,7 @@ class CSVTests(TestCase):
 			with self.assertRaises(UnicodeDecodeError):
 				csv.row()
 		csv = CSV(errors='surrogateescape')
-		with csv.open(str(self.path)):
-			csv.header()
+		with csv.open(str(self.path), header=HeaderValidator()):
 			record: List[str] = csv.row()
 			self.assertEqual(
 				record[0].encode('utf-8', errors='surrogateescape'),
@@ -481,17 +452,16 @@ class CSVTests(TestCase):
 
 	def test_parse_error_propagates(self) -> None:
 		self.path.write_bytes(b'name\n"unterminated\n')
-		csv = CSV()
+		csv = CSV(header=HeaderValidator())
 		with csv.open(str(self.path)):
-			csv.header()
 			with self.assertRaises(Error):
 				csv.row()
 		return
 
 	def test_read_without_open(self) -> None:
-		csv = CSV()
+		csv = CSV(header=HeaderValidator())
+		self.assertIsNone(csv.header())
 		for read in (
-			csv.header,
 			csv.row,
 			csv.rows,
 		):
@@ -505,7 +475,7 @@ class CSVTests(TestCase):
 			with self.assertRaises(RuntimeError):
 				with csv.open(str(self.path)):
 					self.fail('Nested open must fail')
-			csv.header()
+			self.assertEqual(csv.row(), ['name', 'note'])
 		with csv.open(str(self.path)):
 			self.assertEqual(csv.row(), ['name', 'note'])
 		return
@@ -527,12 +497,13 @@ class CSVTests(TestCase):
 		csv.close()
 		binary = open(self.path, 'rb')
 		with patch('builtins.open', return_value=binary):
-			with csv.open(str(self.path)):
-				csv.header()
+			with csv.open(str(self.path), header=HeaderValidator()):
+				self.assertEqual(csv.header(), ['name', 'note'])
 				rows = csv.rows()
 				csv.close()
 				self.assertTrue(binary.closed)
 				self.assertIsNone(csv.header_data)
+				self.assertIsNone(csv.header())
 				csv.close()
 				with self.assertRaises(RuntimeError):
 					csv.row()
@@ -566,18 +537,17 @@ class CSVTests(TestCase):
 			self.assertEqual(csv.row(), ['name', 'note'])
 		return
 
-	def test_header_change_invalidates_iterator(self) -> None:
-		csv = CSV()
+	def test_header_read_does_not_invalidate_iterator(self) -> None:
+		csv = CSV(header=HeaderValidator())
 		with csv.open(str(self.path)):
 			rows = csv.rows()
-			csv.header()
-			with self.assertRaises(RuntimeError):
-				next(rows)
+			self.assertEqual(csv.header(), ['name', 'note'])
+			self.assertEqual(next(rows), [' a ', ' b '])
 		return
 
 	def test_invalid_configuration(self) -> None:
 		with self.assertRaises(TypeError):
-			CSV(cols=[])  # type: ignore[arg-type]
+			CSV(column=[])  # type: ignore[arg-type]
 		with self.assertRaises(TypeError):
 			CSV(row=ColumnValidator())  # type: ignore[arg-type]
 		csv = CSV(delimiter='invalid')

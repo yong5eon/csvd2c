@@ -16,6 +16,7 @@ from unittest import (
 	main,
 )
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.column import (
 	Error,
 	Validator,
@@ -293,16 +294,19 @@ class ColumnPatternTests(TestCase):
 				'name,date,amount\n Alice ,29/02/2024,"1,234.500"\n',
 				encoding='utf-8',
 			)
-			csv = CSV(cols={
-				'name': Validator(Strip(), Required(), Upper()),
-				'date': Validator(Date('%d/%m/%Y')),
-				'amount': Validator(Number(thousands=','), Range(0, 2000)),
-			})
+			csv = CSV(
+				header=HeaderValidator(),
+				column={
+					'name': Validator(Strip(), Required(), Upper()),
+					'date': Validator(Date('%d/%m/%Y')),
+					'amount': Validator(Number(thousands=','), Range(0, 2000)),
+				},
+			)
 			with csv.open(str(path)):
-				header = csv.header()
+				self.assertEqual(csv.header(), ['name', 'date', 'amount'])
 				self.assertEqual(
-					list(csv.rows(header=header)),
-					[{'name': 'ALICE', 'date': '2024-02-29', 'amount': '1234.5'}],
+					list(csv.rows()),
+					[['ALICE', '2024-02-29', '1234.5']],
 				)
 		return
 

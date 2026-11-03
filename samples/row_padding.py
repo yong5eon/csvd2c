@@ -1,7 +1,11 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterator
+from typing import (
+	Iterator,
+	Optional,
+)
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.row import Validator
 from csvd2c.row.patterns import (
 	Length,
@@ -17,7 +21,10 @@ def main() -> None:
 	with TemporaryDirectory() as directory:
 		path: Path = Path(directory) / 'input.csv'
 		path.write_text('name,date\nKim,1-10,extra\nLee\nPark,23-Feb\n', encoding='utf-8')
-		csv: CSV = CSV(row=Validator(Truncate(2), Pad(2), Length(2)))
+		csv: CSV = CSV(
+			header=HeaderValidator(),
+			row=Validator(Truncate(2), Pad(2), Length(2)),
+		)
 		expected: Iterator[dict[str, str]] = iter((
 			{
 				'name': 'Kim',
@@ -33,8 +40,10 @@ def main() -> None:
 			},
 		))
 		with csv.open(str(path)):
-			header: list[str] = csv.header()
-			for record in csv.rows(header=header):
+			header: Optional[list[str]] = csv.header()
+			assert header is not None
+			for values in csv.rows():
+				record: dict[str, str] = dict(zip(header, values))
 				assert record == next(expected)
 				print(record)
 		assert Pad(3, 'missing')(['a'], 1) == [

@@ -2,7 +2,9 @@ from csv import writer
 from _csv import writer as Writer
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Optional
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.column import Validator
 from csvd2c.column.patterns import (
 	Required,
@@ -31,17 +33,21 @@ def main() -> None:
 					str(index),
 					' company ',
 				])
-		csv: CSV = CSV(cols={'name': Validator(Strip(), Required(), Upper())})
+		csv: CSV = CSV(
+			header=HeaderValidator(),
+			column={'name': Validator(Strip(), Required(), Upper())},
+		)
 		count = 0
 		with csv.open(str(path)), output_path.open('x', encoding='utf-8', newline='') as output:
-			header: list[str] = csv.header()
+			header: Optional[list[str]] = csv.header()
+			assert header is not None
 			output_writer: Writer = writer(output)
 			output_writer.writerow(header)
 			for record in csv.rows():
 				output_writer.writerow(record)
 				count += 1
 		assert count == 1000
-		with CSV().open(str(output_path)) as result:
+		with CSV(header=HeaderValidator()).open(str(output_path)) as result:
 			assert result.header() == [
 				'id',
 				'name',

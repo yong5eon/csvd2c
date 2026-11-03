@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.column import Validator
 from csvd2c.column.patterns import (
 	Strip,
@@ -15,15 +16,14 @@ def main() -> None:
 	with TemporaryDirectory() as directory:
 		path: Path = Path(directory) / 'input.csv'
 		path.write_text('name,note\n a , b \nc,d\n', encoding='utf-8')
-		csv: CSV = CSV(cols={'name': Validator(Upper())})
-		with csv.open(str(path)):
-			csv.header()
-			record: list[str] = csv.row(cols=(Validator(Strip()),))
+		csv: CSV = CSV(column={'name': Validator(Upper())})
+		with csv.open(str(path), header=HeaderValidator()):
+			record: list[str] = csv.row(column=(Validator(Strip()),))
 			assert record == [
 				'a',
 				' b ',
 			]
-			assert csv.row(cols=None) == [
+			assert csv.row(column=None) == [
 				'C',
 				'd',
 			]
@@ -36,8 +36,8 @@ def main() -> None:
 			else:
 				raise AssertionError('Expected closed stream error')
 		with csv.open(str(path)):
-			csv.header()
-			for record in csv.rows(cols={}):
+			# Without a header Validator, the header record is read as data.
+			for record in csv.rows(column={}):
 				print('Explicitly disabled column validation:', record)
 	return
 

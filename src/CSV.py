@@ -11,16 +11,18 @@ from typing import (
 	Generator,
 	List,
 	Optional,
-	Sequence,
 	Tuple,
 	Union,
 	TYPE_CHECKING,
-	overload,
 )
 
 if TYPE_CHECKING:
 	from _csv import Reader
 
+from .header import (
+	Error as HeaderError,
+	Validator as HeaderValidator,
+)
 from .row import (
 	Error as RowError,
 	Validator as RowValidator,
@@ -46,8 +48,9 @@ class CSV(object):
 		delimiter: str = ',',
 		escapechar: Optional[str] = None,
 		strict: bool = True,
+		header: Optional[HeaderValidator] = None,
 		row: Optional[RowValidator] = None,
-		cols: Optional[
+		column: Optional[
 			Union[
 				Dict[str, ColumnValidator],
 				Tuple[ColumnValidator, ...],
@@ -60,9 +63,11 @@ class CSV(object):
 		self.delimiter = delimiter
 		self.escapechar = escapechar
 		self.strict = strict
-		self.check_validators(row, cols)
+		self.check_header(header)
+		self.check_validators(row, column)
+		self.header_validator = header
 		self.row_validator = row
-		self.column_validators = cols
+		self.column_validators = column
 		self.reader: Optional['Reader'] = None
 		self.text: Optional[TextIOWrapper] = None
 		self.header_data: Optional[List[str]] = None
@@ -73,19 +78,26 @@ class CSV(object):
 		self,
 		path: str,
 		mode: str = 'rb',
+		header: Optional[HeaderValidator] = None,
 	) -> Generator['CSV', None, None]:
 		"""
 		Open a file for reading and close it on context exit.
 
 		Support rb (default), r, and rt. Binary mode uses TextIOWrapper;
 		text modes apply the same encoding, errors, and newline settings.
-		No record is consumed automatically. Nested opens on the same CSV
-		instance are rejected. File, decoding, and parsing errors propagate.
+		header overrides the constructor header Validator for this open only;
+		None uses the constructor setting. When a header Validator applies,
+		the first record is read and validated before the context is entered;
+		a header Error closes the file. Otherwise no record is consumed.
+		Nested opens on the same CSV instance are rejected. File, decoding,
+		and parsing errors propagate.
 		"""
 		if self.reader is not None:
 			raise RuntimeError('This CSV instance is already open')
 		if mode not in ('rb', 'r', 'rt'):
 			raise ValueError('mode must be rb, r, or rt')
+		self.check_header(header)
+		validator: Optional[HeaderValidator] = self.header_validator if header is None else header
 
 		with ExitStack() as stack:
 			if mode == 'rb':
@@ -117,6 +129,8 @@ class CSV(object):
 			self.header_data = None
 			self.text = text
 			try:
+				if validator is not None:
+					self.header_data = self.read_header(self.reader, validator)
 				yield self
 			finally:
 				if self.text is text:
@@ -140,192 +154,92 @@ class CSV(object):
 			self.header_data = None
 		return
 
-	def header(self) -> List[str]:
+	def header(self) -> Optional[List[str]]:
 		"""
-		Consume the next unvalidated record and use it as the current header.
+		Return a copy of the validated header, or None without header validation.
 
-		Repeated calls consume additional records. Raise StopIteration at EOF.
-		The returned list is a copy so callers cannot change column mapping.
+		No record is consumed. The header is read and validated when open()
+		applies a header Validator.
 		"""
-		source: 'Reader' = self.require_reader()
-		self.header_data = next(source)
+		if self.header_data is None:
+			return None
 		return self.header_data.copy()
 
-	@overload
 	def row(
 		self,
 		*,
-		header: None = None,
 		row: Optional[RowValidator] = None,
-		cols: Optional[Union[
-			Dict[str, ColumnValidator],
-			Tuple[ColumnValidator, ...],
-		]] = None,
-	) -> List[str]:
-		...
-
-	@overload
-	def row(
-		self,
-		*,
-		header: Sequence[str],
-		row: Optional[RowValidator] = None,
-		cols: Optional[Union[
-			Dict[str, ColumnValidator],
-			Tuple[ColumnValidator, ...],
-		]] = None,
-	) -> Dict[str, str]:
-		...
-
-	@overload
-	def row(
-		self,
-		*,
-		header: Optional[Sequence[str]],
-		row: Optional[RowValidator] = None,
-		cols: Optional[Union[
-			Dict[str, ColumnValidator],
-			Tuple[ColumnValidator, ...],
-		]] = None,
-	) -> Union[List[str], Dict[str, str]]:
-		...
-
-	def row(
-		self,
-		*,
-		header: Optional[Sequence[str]] = None,
-		row: Optional[RowValidator] = None,
-		cols: Optional[
+		column: Optional[
 			Union[
 				Dict[str, ColumnValidator],
 				Tuple[ColumnValidator, ...],
 			]
 		] = None,
-	) -> Union[List[str], Dict[str, str]]:
+	) -> List[str]:
 		"""
 		Consume and validate one record, raising StopIteration at EOF.
 
 		None uses the constructor setting. Overrides apply only to this call.
 		Validation failures propagate after the record has been consumed.
-		An explicit header maps validated values to keys in their current order.
-		It does not consume a file header or change named validator mapping.
 		"""
 		source: 'Reader' = self.require_reader()
-		output_header: Optional[Tuple[str, ...]] = self.prepare_header(header)
-		row_validator, column_validators = self.resolve_validators(row, cols)
+		row_validator, column_validators = self.resolve_validators(row, column)
 		indices: List[Tuple[int, Union[int, str], ColumnValidator]] = self.column_indices(column_validators)
 		record: List[str] = next(source)
 		line: int = source.line_num
-		record = self.validate(record, line, row_validator, indices)
-		return self.format_record(record, output_header)
-
-	@overload
-	def rows(
-		self,
-		*,
-		header: None = None,
-		row: Optional[RowValidator] = None,
-		cols: Optional[Union[
-			Dict[str, ColumnValidator],
-			Tuple[ColumnValidator, ...],
-		]] = None,
-	) -> Generator[List[str], None, None]:
-		...
-
-	@overload
-	def rows(
-		self,
-		*,
-		header: Sequence[str],
-		row: Optional[RowValidator] = None,
-		cols: Optional[Union[
-			Dict[str, ColumnValidator],
-			Tuple[ColumnValidator, ...],
-		]] = None,
-	) -> Generator[Dict[str, str], None, None]:
-		...
-
-	@overload
-	def rows(
-		self,
-		*,
-		header: Optional[Sequence[str]],
-		row: Optional[RowValidator] = None,
-		cols: Optional[Union[
-			Dict[str, ColumnValidator],
-			Tuple[ColumnValidator, ...],
-		]] = None,
-	) -> Generator[Union[List[str], Dict[str, str]], None, None]:
-		...
+		return self.validate(record, line, row_validator, indices)
 
 	def rows(
 		self,
 		*,
-		header: Optional[Sequence[str]] = None,
 		row: Optional[RowValidator] = None,
-		cols: Optional[
+		column: Optional[
 			Union[
 				Dict[str, ColumnValidator],
 				Tuple[ColumnValidator, ...],
 			]
 		] = None,
-	) -> Generator[Union[List[str], Dict[str, str]], None, None]:
+	) -> Generator[List[str], None, None]:
 		"""
 		Stream remaining records without accumulating results in memory.
 
-		Overrides and header mapping are captured when this method is called.
-		The iterator must be consumed inside the open context. It cannot be
-		reused after the file is closed, reopened, or the header is changed.
-		An explicit output header is copied at call time and maps validated
-		values to keys without rearranging columns.
+		Overrides are captured when this method is called. The iterator must
+		be consumed inside the open context and cannot be reused after the
+		file is closed or reopened.
 		"""
 		source: 'Reader' = self.require_reader()
-		output_header: Optional[Tuple[str, ...]] = self.prepare_header(header)
-		row_validator, column_validators = self.resolve_validators(row, cols)
+		row_validator, column_validators = self.resolve_validators(row, column)
 		indices: List[Tuple[int, Union[int, str], ColumnValidator]] = self.column_indices(column_validators)
-		return self.iterate(source, self.header_data, row_validator, indices, output_header)
+		return self.iterate(source, row_validator, indices)
 
-	def prepare_header(
+	def read_header(
 		self,
-		header: Optional[Sequence[str]],
-	) -> Optional[Tuple[str, ...]]:
-		if header is None:
-			return None
-		if isinstance(header, str):
-			raise TypeError('header must be a sequence of column names, not a string')
-		names: Tuple[str, ...] = tuple(header)
-		for name in names:
-			if not isinstance(name, str):
-				raise TypeError('Output column names must be strings')
-		if len(set(names)) != len(names):
-			raise ValueError('Output column names must be unique')
-		return names
-
-	def format_record(
-		self,
-		record: List[str],
-		header: Optional[Tuple[str, ...]],
-	) -> Union[List[str], Dict[str, str]]:
-		if header is None:
-			return record
-		if len(record) != len(header):
-			raise ValueError(
-				'Output header has {} columns, but the validated record has {}'.format(
-					len(header),
-					len(record),
-				)
-			)
-		return dict(zip(header, record))
+		source: 'Reader',
+		validator: HeaderValidator,
+	) -> List[str]:
+		try:
+			record: List[str] = next(source)
+		except StopIteration:
+			raise HeaderError('The file has no record to use as a header', None) from None
+		return list(validator(record))
 
 	def require_reader(self) -> 'Reader':
 		if self.reader is None:
 			raise RuntimeError('Open the CSV file before reading records')
 		return self.reader
 
+	def check_header(
+		self,
+		header: Optional[HeaderValidator],
+	) -> None:
+		if header is not None and not isinstance(header, HeaderValidator):
+			raise TypeError('header must be a header Validator or None')
+		return
+
 	def check_validators(
 		self,
 		row: Optional[RowValidator],
-		cols: Optional[
+		column: Optional[
 			Union[
 				Dict[str, ColumnValidator],
 				Tuple[ColumnValidator, ...],
@@ -334,25 +248,25 @@ class CSV(object):
 	) -> None:
 		if row is not None and not isinstance(row, RowValidator):
 			raise TypeError('row must be a row Validator or None')
-		if cols is not None:
-			if isinstance(cols, dict):
-				for name, validator in cols.items():
+		if column is not None:
+			if isinstance(column, dict):
+				for name, validator in column.items():
 					if not isinstance(name, str):
 						raise TypeError('Column names must be strings')
 					if not isinstance(validator, ColumnValidator):
 						raise TypeError('Column validators must be column Validator instances')
-			elif isinstance(cols, tuple):
-				for validator in cols:
+			elif isinstance(column, tuple):
+				for validator in column:
 					if not isinstance(validator, ColumnValidator):
 						raise TypeError('Column validators must be column Validator instances')
 			else:
-				raise TypeError('cols must be a dictionary, a tuple, or None')
+				raise TypeError('column must be a dictionary, a tuple, or None')
 		return
 
 	def resolve_validators(
 		self,
 		row: Optional[RowValidator],
-		cols: Optional[
+		column: Optional[
 			Union[
 				Dict[str, ColumnValidator],
 				Tuple[ColumnValidator, ...],
@@ -366,38 +280,38 @@ class CSV(object):
 			]
 		]
 	]:
-		self.check_validators(row, cols)
+		self.check_validators(row, column)
 		return (
 			self.row_validator if row is None else row,
-			self.column_validators if cols is None else cols,
+			self.column_validators if column is None else column,
 		)
 
 	def column_indices(
 		self,
-		cols: Optional[
+		column: Optional[
 			Union[
 				Dict[str, ColumnValidator],
 				Tuple[ColumnValidator, ...],
 			]
 		],
 	) -> List[Tuple[int, Union[int, str], ColumnValidator]]:
-		if cols is None:
+		if column is None:
 			return []
-		if isinstance(cols, tuple):
+		if isinstance(column, tuple):
 			return [
 				(
 					index,
 					index,
 					validator,
 				)
-				for index, validator in enumerate(cols)
+				for index, validator in enumerate(column)
 			]
-		if not cols:
+		if not column:
 			return []
 		if self.header_data is None:
-			raise RuntimeError('Call header() before using named column validators')
+			raise RuntimeError('Inject a header Validator before using named column validators')
 		indices: List[Tuple[int, Union[int, str], ColumnValidator]] = []
-		for name, validator in cols.items():
+		for name, validator in column.items():
 			count: int = self.header_data.count(name)
 			if count != 1:
 				raise ValueError(
@@ -438,18 +352,15 @@ class CSV(object):
 	def iterate(
 		self,
 		source: 'Reader',
-		header: Optional[List[str]],
 		row: Optional[RowValidator],
 		indices: List[Tuple[int, Union[int, str], ColumnValidator]],
-		output_header: Optional[Tuple[str, ...]],
-	) -> Generator[Union[List[str], Dict[str, str]], None, None]:
+	) -> Generator[List[str], None, None]:
 		while True:
-			if self.reader is not source or self.header_data is not header:
-				raise RuntimeError('The CSV context or header has changed')
+			if self.reader is not source:
+				raise RuntimeError('The CSV context has changed')
 			try:
 				record: List[str] = next(source)
 				line: int = source.line_num
 			except StopIteration:
 				return
-			record = self.validate(record, line, row, indices)
-			yield self.format_record(record, output_header)
+			yield self.validate(record, line, row, indices)

@@ -14,14 +14,15 @@ flowchart LR
   B --> C["CSV 레코드 파싱"]
   C --> D["행 Validator"]
   D --> E["컬럼 Validator"]
-  E --> F["list 또는 dict 반환"]
+  E --> F["list 반환"]
 ```
 
-`header()`는 다음 원본 레코드를 소비해 헤더로 저장하며 위 Validator를 적용하지 않습니다. 이후 `row()` 또는 `rows()`를 호출하면 레코드를 읽고 행 검증 후 컬럼 검증을 실행합니다. 오류는 호출자에게 전파됩니다.
+헤더 Validator를 주입하면 `open()`이 첫 레코드를 헤더로 읽고 검증합니다. 이후 `row()` 또는 `rows()`를 호출하면 레코드를 읽고 행 검증 후 컬럼 검증을 실행합니다. 오류는 호출자에게 전파됩니다.
 
 ## 목차
 
-- [사용 규칙](#사용-규칙): 인코딩 후보 검사, 읽기 모드, 헤더, 반환 형태와 수명
+- [사용 규칙](#사용-규칙): 인코딩 후보 검사, 읽기 모드, 반환 형태와 수명
+- [헤더 검증](#헤더-검증): 헤더 Validator 주입, 제공 Pattern, 이름 변경과 마이그레이션
 - [행 구조 Pattern](#행-구조-pattern): 컬럼 재배치·병합·분리와 오류 처리
 - [컬럼 Pattern](#컬럼-pattern): 문자열·날짜·숫자·통화 정제와 인코딩 복구
 - [처리 원칙](#처리-원칙): 원본 보존과 대용량 처리의 제약
@@ -29,30 +30,30 @@ flowchart LR
 ## 사용 규칙
 
 - `detect_encoding(path, *args)`는 앞부분 최대 1MiB를 후보 순서대로 검사하여 첫 성공 인코딩을 반환합니다. 파일 끝 확인을 위해 1바이트를 추가로 읽습니다. 후보 누락, 빈 파일과 모든 후보 실패는 오류입니다. BOM으로 후보를 자동 선택하지 않으며, UTF-8 BOM 처리가 필요하면 `utf-8-sig`를 후보에 넣습니다. 샘플 성공은 실제 인코딩이나 전체 파일의 유효성을 보장하지 않습니다.
-- `CSV.open(path)`는 바이너리 파일을 `TextIOWrapper`로 감싸고, 컨텍스트 종료 시 닫습니다. 첫 레코드를 자동으로 소비하지 않습니다.
-- `open(path, mode="rb")`는 읽기 전용 `rb`, `r`, `rt`를 지원합니다. 텍스트 모드도 생성자의 인코딩·오류·개행 설정을 사용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다.
+- `CSV.open(path)`는 바이너리 파일을 `TextIOWrapper`로 감싸고, 컨텍스트 종료 시 닫습니다. 헤더 Validator가 없으면 첫 레코드를 소비하지 않습니다.
+- `open(path, mode="rb", header=None)`는 읽기 전용 `rb`, `r`, `rt`를 지원합니다. 텍스트 모드도 생성자의 인코딩·오류·개행 설정을 사용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다. `header`는 [헤더 검증](#헤더-검증)을 참고하세요.
 - `close()`는 현재 스트림을 즉시 닫고 헤더와 읽기 상태를 초기화합니다. 반복 호출해도 안전하며, 닫힌 스트림의 generator는 사용할 수 없습니다.
-- `header()`는 다음 원본 레코드를 소비하여 현재 헤더로 저장하고 복사본을 반환합니다. 반복 호출할 때마다 다음 레코드를 읽습니다.
-- `row()`는 다음 레코드 하나를 반환합니다. `rows()`는 남은 레코드를 하나씩 제공하는 generator입니다. 두 메소드는 같은 읽기 위치를 공유하며 열린 컨텍스트 안에서 사용해야 합니다.
-- `row(header=("name", "date"))`는 검증 후 값들을 현재 순서대로 키에 연결하여 dict를 반환합니다. `rows(header=...)`는 dict를 스트리밍합니다. 생략하거나 `None`이면 기존 list 반환을 유지합니다. 출력 헤더는 해당 호출에만 적용되고 파일 헤더를 소비하거나 이름 기반 Validator 매핑을 변경하지 않습니다. 중복 키나 검증 후 컬럼 수 불일치는 오류이며, 빈 헤더는 빈 레코드에만 대응합니다.
-- `row()`와 `header()`는 파일 끝에서 `StopIteration`을 발생시키고, `rows()`는 정상 종료합니다.
-- 생성자의 `row`는 행 Validator, `cols`는 컬럼 Validator 설정입니다. `row(row=..., cols=...)`와 `rows(row=..., cols=...)`로 해당 호출에만 설정을 교체할 수 있습니다. 생략하거나 `None`을 전달하면 생성자 설정을 사용하며, 생성자에도 없으면 검증하지 않습니다.
-- `cols`가 dict이면 현재 헤더에서 지정한 컬럼만 처리합니다. 먼저 `header()`를 호출해야 하며, 지정한 이름이 없거나 중복되면 오류입니다. tuple이면 첫 컬럼부터 지정한 개수만 처리합니다.
+- `header()`는 레코드를 읽지 않고, `open()`에서 검증한 헤더의 복사본을 반환합니다. 헤더 검증을 하지 않았으면 `None`을 반환합니다.
+- `row()`는 다음 레코드 하나를 list로 반환합니다. `rows()`는 남은 레코드를 list로 하나씩 제공하는 generator입니다. 두 메소드는 같은 읽기 위치를 공유하며 열린 컨텍스트 안에서 사용해야 합니다. 헤더 Validator 없이 헤더가 있는 파일을 읽으면 첫 결과는 헤더 레코드입니다.
+- `row()`는 파일 끝에서 `StopIteration`을 발생시키고, `rows()`는 정상 종료합니다.
+- 생성자의 `row`는 행 Validator, `column`은 컬럼 Validator 설정입니다. `row(row=..., column=...)`와 `rows(row=..., column=...)`로 해당 호출에만 설정을 교체할 수 있습니다. 생략하거나 `None`을 전달하면 생성자 설정을 사용하며, 생성자에도 없으면 검증하지 않습니다.
+- `column`이 dict이면 검증된 헤더에서 지정한 컬럼만 처리합니다. 헤더 Validator를 주입해야 하며, 지정한 이름이 없거나 중복되면 오류입니다. tuple이면 첫 컬럼부터 지정한 개수만 처리합니다.
 - 행 Validator를 먼저 실행하고 그 결과에 컬럼 Validator를 적용합니다. 컬럼 수 일치를 자동으로 강제하지 않으며, 구조 검사는 행 Pattern에서 정의합니다. 처리 대상 컬럼이 행에 없으면 오류입니다.
-- `rows()`는 호출 시 검증 설정과 헤더 매핑을 선택합니다. 이후 헤더가 바뀌거나 파일 컨텍스트가 닫히거나 다시 열리면 기존 generator를 사용할 수 없습니다.
+- `rows()`는 호출 시 검증 설정과 헤더 매핑을 선택합니다. 파일 컨텍스트가 닫히거나 다시 열리면 기존 generator를 사용할 수 없습니다.
 - TSV는 `delimiter="\t"`로 읽습니다. 기본 구분자는 쉼표이고 `strict=True`로 CSV 구문을 검사합니다. `escapechar`는 기본값 `None`이며, backslash로 escape된 인용부호 같은 입력을 처리하려면 `escapechar="\\"`로 지정합니다. 값의 해석과 설정 오류는 Python 표준 `csv.reader`를 따릅니다.
 
 예를 들어 `input.tsv`의 첫 레코드가 헤더이고 다음 레코드가 `1<TAB>"Acme \"quoted\" name"`이면 다음 설정으로 데이터 행을 `['1', 'Acme "quoted" name']`으로 읽습니다.
 
 ```python
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 
 with CSV(
   delimiter="\t",
   escapechar="\\",
   strict=True,
+  header=HeaderValidator(),
 ).open("input.tsv") as data:
-  data.header()
   print(data.row())
 ```
 
@@ -60,11 +61,109 @@ with CSV(
 - `surrogateescape`는 해석할 수 없는 바이트를 보존할 뿐 복구하지 않습니다. 해당 값을 검사 없이 DB 등에 전달하지 마세요. 이미 저장된 `�`는 별도로 검증해야 합니다.
 - 파일 전체를 적재하지 않지만, 비정상적으로 큰 레코드는 메모리 사용량에 영향을 줍니다. CSV 파서의 필드 크기 제한을 무작정 늘리지 마세요.
 
+## 헤더 검증
+
+csvd2c는 첫 레코드가 헤더인지 스스로 판단하지 않습니다. 헤더 Validator를 주입하면 첫 레코드를 헤더로 보고, 주입하지 않으면 모든 레코드를 데이터로 읽습니다.
+
+### 주입과 동작
+
+헤더 Validator는 `csvd2c.header.Validator`이며 생성자와 `open()`의 `header` 인자로 받습니다. 생성자 값이 기본이고, `open()`에 넘긴 값은 그 파일을 여는 동안에만 적용됩니다. `open()`에 `None`을 넘기거나 생략하면 생성자 값을 사용하며, 파일을 닫고 다시 열면 다시 생성자 값이 적용됩니다.
+
+```mermaid
+flowchart TD
+  Open["open()"] --> Has{"헤더 Validator 있음?"}
+  Has -- 없음 --> Ready["컨텍스트 진입, header()는 None"]
+  Has -- 있음 --> Read["첫 레코드 읽기"]
+  Read -- 레코드 없음 --> Empty["header.Error(value=None), 파일 닫기"]
+  Read --> Validate["헤더 Validator 실행"]
+  Validate -- 실패 --> Fail["header.Error 전파, 파일 닫기"]
+  Validate -- 성공 --> Store["반환값을 헤더로 저장, 컨텍스트 진입"]
+```
+
+- 헤더 Validator가 있으면 `open()`은 첫 레코드를 읽어 검증한 뒤 `with` 블록에 들어갑니다. 첫 `row()`는 두 번째 레코드를 읽습니다.
+- 검증에 실패하면 `open()`에서 예외가 전파되고 파일이 닫힙니다. 실패한 헤더는 저장하지 않습니다. 파일이 비어 있으면 `value`가 `None`인 `csvd2c.header.Error`가 발생합니다.
+- Validator의 반환값을 헤더 이름으로 저장합니다. `header()`는 이 값의 복사본을 반환하며 레코드를 읽지 않습니다.
+- 이름 기반 컬럼 Validator(`column`이 dict)는 저장된 헤더로 위치를 찾습니다. 지정한 이름이 헤더에 정확히 한 번 있어야 하며, 아니면 첫 `row()`·`rows()`에서 `ValueError`가 발생합니다.
+
+헤더 Pattern과 Validator는 헤더 이름 목록을 받아 이름 목록을 반환합니다. 호출 계약은 `__call__(value: List[str]) -> List[str]`이며 라인 번호와 열 식별자를 받지 않습니다. 실패 시 발생하는 `csvd2c.header.Error(message, value)`는 공통 `csvd2c.Error`를 상속하며, `value`는 실패한 Pattern에 들어온 헤더입니다.
+
+### 제공 Pattern
+
+`csvd2c.header.patterns`에서 가져옵니다. 이름은 대소문자·공백을 바꾸지 않고 정확히 비교합니다.
+
+| Pattern | 거부 조건 |
+| --- | --- |
+| `RejectEmpty()` | 정확히 빈 문자열인 이름이 있음. 필드가 없는 헤더는 통과 |
+| `RejectDuplicate()` | 같은 이름이 두 번 이상 있음 |
+| `Length(count)` | 이름 개수가 `count`와 다름 |
+| `Includes(*names)` | 지정한 이름 중 없는 것이 있음. 추가 이름과 순서는 검사하지 않음 |
+| `Exact(*names)` | 순서를 무시하고 비교했을 때 지정한 이름 목록과 다름. 중복 이름은 각각 셈 |
+| `ExactOrder(*names)` | 지정한 이름과 순서까지 같지 않음 |
+
+`Exact("a", "b")`는 `b,a`를 허용하고 `a,a,b`는 거부합니다. 빈 헤더 라인(필드 0개)을 거부하려면 `Length`나 이름 목록 검사를 함께 사용하세요. 헤더 Pattern의 `RejectEmpty`는 행 Pattern `csvd2c.row.patterns.RejectEmpty`와 이름만 같으므로, 함께 가져올 때는 별칭을 사용합니다. BOM이나 뒤쪽 빈 헤더는 자동으로 보정하지 않습니다. UTF-8 BOM은 `encoding="utf-8-sig"`로 읽으세요.
+
+```python
+from csvd2c import CSV
+from csvd2c.column import Validator
+from csvd2c.column.patterns import Required
+from csvd2c.header import Error as HeaderError
+from csvd2c.header import Validator as HeaderValidator
+from csvd2c.header.patterns import (
+  ExactOrder,
+  RejectDuplicate,
+  RejectEmpty,
+)
+
+csv = CSV(
+  header=HeaderValidator(RejectEmpty(), RejectDuplicate(), ExactOrder("name", "date")),
+  column={"name": Validator(Required())},
+)
+try:
+  with csv.open("input.csv"):
+    print(csv.header())
+    for record in csv.rows():
+      print(record)
+except HeaderError as error:
+  print("Invalid header:", error.value, error.message)
+```
+
+`input.csv`가 `name,date`로 시작하면 헤더와 데이터 레코드를 출력합니다. 헤더가 다르면 `with` 블록에 들어가지 않고 `Invalid header:`를 출력합니다.
+
+### 이름 변경
+
+헤더 Validator의 반환값이 헤더 이름이 되므로, 이름을 바꾸는 Pattern을 직접 만들어 이름 기반 컬럼 매핑에 사용할 수 있습니다. 이름 변경 Pattern은 기본 제공하지 않습니다.
+
+```python
+from typing import Dict, List
+from csvd2c.header import Pattern, Validator
+
+class Rename(Pattern):
+  def __init__(self, names: Dict[str, str]) -> None:
+    self.names = dict(names)
+
+  def __call__(self, value: List[str]) -> List[str]:
+    return [self.names.get(name, name) for name in value]
+
+validator = Validator(Rename({"고객명": "name"}))
+assert validator(["고객명", "date"]) == ["name", "date"]
+```
+
+이 Validator를 주입하면 `column={"name": ...}`이 `고객명` 컬럼에 적용됩니다.
+
+### 마이그레이션
+
+| 이전 사용법 | 변경 후 |
+| --- | --- |
+| `csv.header()`로 첫 레코드를 헤더로 소비 | `CSV(header=HeaderValidator())` 또는 `open(path, header=HeaderValidator())` 주입 후 `csv.header()`로 조회 |
+| `header()` 반복 호출로 다음 레코드 소비 | 지원하지 않음. 데이터 레코드는 `row()`로 읽음 |
+| `cols=` | `column=` |
+| `row(header=...)`·`rows(header=...)`로 dict 반환 | list를 받아 `dict(zip(csv.header(), record))` 등으로 직접 변환 |
+
 ## 검증 위치와 오류 처리 계약
 
 행 `Pattern`·`Validator`는 `__call__(value: List[str], row: int) -> List[str]`, 열 구현은 `__call__(value: str, row: int, column: Union[int, str]) -> str` 계약을 사용합니다. `self`는 생략한 표기입니다. 직접 호출할 때는 위치 인자를 제공해야 하며, 이전 한 인자 사용자 정의 Pattern도 새 시그니처로 수정해야 합니다.
 
-CSV에 Validator를 주입하면 CSV가 라인 번호와 열 식별자를 전달합니다. 라인 번호는 1부터 시작하는 실제 파일의 물리 라인 번호이며 레코드를 모두 읽은 마지막 라인입니다. 인용 개행으로 2~3번 라인에 걸친 레코드가 실패하면 3입니다. 정확한 오류 문자 위치나 논리 레코드 번호를 의미하지 않습니다. 튜플로 지정한 열 Validator는 0부터 시작하는 인덱스, 이름으로 지정한 Validator는 지정한 컬럼명을 받습니다. 출력용 `header=`는 이 식별자를 바꾸지 않습니다.
+CSV에 Validator를 주입하면 CSV가 라인 번호와 열 식별자를 전달합니다. 라인 번호는 1부터 시작하는 실제 파일의 물리 라인 번호이며 레코드를 모두 읽은 마지막 라인입니다. 인용 개행으로 2~3번 라인에 걸친 레코드가 실패하면 3입니다. 정확한 오류 문자 위치나 논리 레코드 번호를 의미하지 않습니다. 튜플로 지정한 열 Validator는 0부터 시작하는 인덱스, 이름으로 지정한 Validator는 지정한 컬럼명을 받습니다.
 
 검증 실패는 예외로 알립니다. 오류 클래스의 상속 관계는 다음과 같습니다.
 
@@ -242,11 +341,13 @@ from csvd2c.column.patterns import (
   RecoverEncoding,
   RejectSurrogates,
 )
+from csvd2c.header import Validator as HeaderValidator
 
 csv = CSV(
   encoding="utf-8",
   errors="surrogateescape",
-  cols={
+  header=HeaderValidator(),
+  column={
     "description": Validator(
       IfUndecodable(RecoverEncoding("cp1258")),
       RejectSurrogates(),

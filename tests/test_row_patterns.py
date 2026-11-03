@@ -2,12 +2,17 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import (
+	List,
+	Optional,
+)
 from unittest import (
 	TestCase,
 	main,
 )
 
 from csvd2c import CSV
+from csvd2c.header import Validator as HeaderValidator
 from csvd2c.row import (
 	Error,
 	Validator,
@@ -212,11 +217,15 @@ class RowPatternTests(TestCase):
 				'name,date\nKim,1-10,extra\nLee\nPark,23-Feb\n',
 				encoding='utf-8',
 			)
-			csv = CSV(row=Validator(Truncate(2), Pad(2), Length(2)))
+			csv = CSV(
+				header=HeaderValidator(),
+				row=Validator(Truncate(2), Pad(2), Length(2)),
+			)
 			with csv.open(str(path)):
-				header = csv.header()
+				header: Optional[List[str]] = csv.header()
+				assert header is not None
 				self.assertEqual(
-					list(csv.rows(header=header)),
+					[dict(zip(header, record)) for record in csv.rows()],
 					[
 						{'name': 'Kim', 'date': '1-10'},
 						{'name': 'Lee', 'date': ''},
@@ -243,11 +252,15 @@ class RowPatternTests(TestCase):
 		with TemporaryDirectory() as directory:
 			path = Path(directory) / 'input.csv'
 			path.write_text('name,date\nKim,unused,1-10\n', encoding='utf-8')
-			csv = CSV(row=Validator(Remove(1), Length(2)))
+			csv = CSV(
+				header=HeaderValidator(),
+				row=Validator(Remove(1), Length(2)),
+			)
 			with csv.open(str(path)):
-				header = csv.header()
+				header: Optional[List[str]] = csv.header()
+				assert header is not None
 				self.assertEqual(
-					csv.row(header=header),
+					dict(zip(header, csv.row())),
 					{'name': 'Kim', 'date': '1-10'},
 				)
 		return

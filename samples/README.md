@@ -2,7 +2,7 @@
 
 [English](./README.en.md)
 
-csvd2c의 공개 API를 사용하는 독립 실행 예제 22개입니다. 작은 합성 데이터를 직접 만들고 결과를 `assert`로 확인합니다. 외부 서비스, DB, 고객 데이터는 사용하지 않습니다.
+csvd2c의 공개 API를 사용하는 독립 실행 예제 23개입니다. 작은 합성 데이터를 직접 만들고 결과를 `assert`로 확인합니다. 외부 서비스, DB, 고객 데이터는 사용하지 않습니다.
 
 ## 실행
 
@@ -31,8 +31,9 @@ python -m unittest discover -s tests -p "test_samples.py" -v
 
 | 파일 | 참고할 내용 |
 | --- | --- |
-| [read_basic.py](./read_basic.py) | `header()`, `row()`, `rows()`, EOF, 날짜처럼 보이는 원문 유지 |
-| [read_dictionary.py](./read_dictionary.py) | 파일 헤더와 출력 `header=`의 차이, list/dict 반환 |
+| [read_basic.py](./read_basic.py) | 헤더 Validator 주입, `header()`, `row()`, `rows()`, EOF, 날짜처럼 보이는 원문 유지 |
+| [read_dictionary.py](./read_dictionary.py) | 검증된 `header()`와 list 레코드를 `dict(zip(...))`로 묶기, 다른 키 이름 사용 |
+| [header_validation.py](./header_validation.py) | `open()` 시 헤더 검증, `Length`·`RejectEmpty`·`RejectDuplicate`·`ExactOrder` 조합, 헤더 `Error` 처리, 이름을 바꾸는 사용자 정의 헤더 Pattern과 이름 기반 컬럼 검증 |
 | [read_tsv_multiline.py](./read_tsv_multiline.py) | TSV, 인용된 탭, 필드 안 개행, UTF-8 BOM, `rb`/`r`/`rt` |
 | [detect_encoding.py](./detect_encoding.py) | 후보 순서, cp949 파일, ASCII의 모호함, 후보 누락 오류 |
 | [read_overrides_close.py](./read_overrides_close.py) | 이름·위치 기반 컬럼 검증, 호출별 교체, `None`과 `{}` 차이, 닫기·재개 |

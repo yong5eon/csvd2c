@@ -4,6 +4,7 @@ from csvd2c import (
 	CSV,
 	detect_encoding,
 )
+from csvd2c.header import Validator as HeaderValidator
 
 
 def main() -> None:
@@ -15,7 +16,10 @@ def main() -> None:
 		path.write_bytes('이름\n홍길동\n'.encode('cp949'))
 		encoding: str = detect_encoding(str(path), 'utf-8', 'cp949')
 		assert encoding == 'cp949'
-		with CSV(encoding=encoding).open(str(path)) as csv:
+		with CSV(
+			encoding=encoding,
+			header=HeaderValidator(),
+		).open(str(path)) as csv:
 			assert csv.header() == ['이름']
 			assert csv.row() == ['홍길동']
 		path.write_bytes(b'name\nKim\n')
