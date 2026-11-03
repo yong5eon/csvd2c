@@ -2,10 +2,12 @@
 
 from codecs import getincrementaldecoder
 from .CSV import CSV
+from .Error import Error
 
 __all__ = (
 	'detect_encoding',
 	'CSV',
+	'Error',
 )
 
 

@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from typing import (
-	List,
-	Optional,
-)
+from typing import List
 from ..Pattern import Pattern
 from ..Error import Error
 
@@ -21,11 +18,7 @@ class Merge(Pattern):
 		stop: int,
 		*,
 		sep: str = ',',
-		error: Optional[Error] = None,
 	) -> None:
-		if error is not None and not isinstance(error, Error):
-			raise TypeError('error must be a row Error instance or None')
-		self.error = error
 		if type(start) is not int or type(stop) is not int:
 			raise TypeError('Merge bounds must be integers')
 		if not isinstance(sep, str):
@@ -35,12 +28,14 @@ class Merge(Pattern):
 		self.sep = sep
 		return
 
-	def __call__(self, row: List[str]) -> List[str]:
-		size: int = len(row)
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
+		size: int = len(value)
 		start: int = self.start + size if self.start < 0 else self.start
 		stop: int = self.stop + size if self.stop < 0 else self.stop
 		if not 0 <= start < stop <= size:
-			if self.error is not None:
-				return self.error(row.copy())
-			raise ValueError('Merge requires a nonempty range within the record')
-		return row[:start] + [self.sep.join(row[start:stop])] + row[stop:]
+			raise Error('Merge requires a nonempty range within the record', row, value)
+		return value[:start] + [self.sep.join(value[start:stop])] + value[stop:]

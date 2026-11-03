@@ -22,8 +22,12 @@ class Insert(Pattern):
 		self.value = value
 		return
 
-	def __call__(self, row: List[str]) -> List[str]:
-		result: List[str] = row.copy()
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
+		result: List[str] = value.copy()
 		result.insert(self.index, self.value)
 		return result
 

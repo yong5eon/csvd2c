@@ -4,15 +4,17 @@
 
 [요구사항 명세](./REQUIREMENTS.md)를 구현 기준으로 삼고, 브랜치와 병합 대상은 [README](./README.md)의 메타데이터를 따른다.
 
-계획 작성 완료, 아래 구현·검증 단계는 모두 미착수이다. 이번 계획 작성으로 제품 코드를 변경하거나 커밋·푸시·병합하지 않는다.
+구현·검증 완료. 초기 구현의 호출형 Error 처리기는 사용자 지시에 따라 예외 클래스로 정정했다. 전체 테스트 124개가 통과했으며 커밋·푸시·병합은 수행하지 않는다.
 
 ## 구현 방향
 
-- 행 Pattern·Validator·Error: `__call__(self, row: List[str], line: int) -> List[str]`
-- 열 Pattern·Validator·Error: `__call__(self, value: str, line: int, column: Union[int, str]) -> str`
+- 행 Pattern·Validator: `__call__(self, value: List[str], row: int) -> List[str]`
+- 열 Pattern·Validator: `__call__(self, value: str, row: int, column: Union[int, str]) -> str`
+- Error는 예외 클래스: 공통 `Error(Exception)(message)`, 행 `Error(message, row, value)`, 열 `Error(message, row, column, value)`. Error에 `__call__`을 두지 않는다.
 - 원본값은 각 Pattern의 입력값이다. 앞선 Pattern의 반환값을 다음 Pattern에 전달하며 최초 값 스냅샷·역추적·별도 맥락 실행 계층은 추가하지 않는다.
-- 입력 유지·기록·복구·예외 발생과 예외 타입은 호출자가 선택한다. Error 지정이나 예외 발생을 일괄 강제하지 않는다.
+- Pattern의 `error=` 인자를 제거한다. 기록·복구·건너뛰기는 호출자가 `try`/`except`로 처리한다.
 - 공통 Error는 `src/Error.py`에 정의하고 행·열 Error가 상속한다. 서로 다른 행·열 시그니처를 무리하게 하나의 광범위한 인자 계약으로 통합하지 않고, 공통 기반에 필요한 최소 책임만 둔다. 실제 부모 계약과 행·열 재정의의 타입 호환성을 확인한다.
+- 사용자 지시에 따라 Error는 예외 클래스다. 공통 `Error(Exception)`를 행·열 Error가 상속하고, Pattern의 `error=`는 제거했다.
 
 ## 수행 순서
 
@@ -32,10 +34,11 @@
 
 - [행 Validator](../../../src/row/Validator.py)·[열 Validator](../../../src/column/Validator.py)가 값과 위치를 각 Pattern에 전달하도록 변경한다.
 - 모든 기본 Pattern의 호출 시그니처와 내부 Pattern 직접 호출을 새 계약에 맞춘다. 순수 변환의 동작이나 거부 조건은 추가하지 않는다.
-- R4의 행·열 검증 Pattern은 실패 시 해당 Pattern의 입력값과 위치를 Error에 전달한다.
+- R4의 행·열 검증 Pattern은 실패 시 해당 Pattern의 입력값과 위치를 담은 Error를 발생시킨다.
 - `Range`의 내부 `Number` 호출 등 조합 호출과 인코딩 복구 Pattern의 상속·재정의를 함께 갱신한다. 생성자 설정 검증을 위해 Pattern을 호출하는 경로는 레코드 위치를 조작하지 않도록 설정 검증과 구분한다.
 - `IfEmpty`·`IfMatch`·`IfUndecodable`·`IfLength`가 중첩 실행에 동일한 위치와 그 시점의 값을 전달하도록 변경한다.
-- [IfLength](../../../src/row/patterns/IfLength.py)의 광범위한 `ValueError` 재처리를 정리하여 Error 구현에서 발생한 예외가 외부 복구로 바뀌지 않게 한다. 새로운 예외 체계나 재시도 계층으로 해결하지 않는다.
+- [IfLength](../../../src/row/patterns/IfLength.py)의 광범위한 `ValueError` 재처리를 제거하여 중첩 Pattern의 예외를 그대로 전파한다. 새로운 예외 체계나 재시도 계층으로 해결하지 않는다.
+- 모든 Pattern의 `error=` 제거와 데이터 실패의 `ValueError` → 행·열 Error 변경을 사용 문서·샘플에 호환성 변경으로 명시한다.
 - `TryRecoverEncoding`의 후보 실패 시 입력 유지 계약을 보존한다.
 
 ### 3. CSV의 라인 번호와 열 식별자 전달
@@ -55,7 +58,7 @@
 
 - 기존 [테스트](../../../tests)와 [샘플](../../../samples)의 사용자 정의 Error·Pattern 및 모든 직접 호출에 위치 인자를 반영한다.
 - 검증값을 기록하는 Error를 이용해 입력값·라인 번호·열 식별자를 직접 대조한다.
-- 사용자 정의 행·열 Error·Pattern에서 입력 유지·기록·복구·사용자 정의 예외를 각각 실행하는 예시를 갱신한다.
+- 사용자 정의 Pattern이 행·열 Error를 발생시키고 호출자가 예외를 잡아 기록·계속 읽기 하는 예시를 갱신한다.
 - 먼저 변경 대상 테스트를 묶어 실행하고, 호출 계약이 소스·샘플 전반에 영향을 주므로 마지막에 기존 Python 테스트 전체를 실행한다.
 
 ### 5. 사용 문서와 작업 결과 정리
@@ -76,14 +79,14 @@
 | A1-2·A1-3·A5 | 공통 Error 상속과 식별 불가능한 실패 처리, 열 정보가 없는 행 실패, 헤더 없는 숫자 열 식별 및 명시적 위치 직접 호출 확인 |
 | A2 | 일반 CSV·헤더 이후·인용 개행 합성 CSV를 읽고 실제 마지막 물리 라인 번호와 Error 수신 번호 대조 |
 | A3·A4 | `Strip → Required`에서 `""` 수신, 앞선 행 변환 후 입력 행 수신, 중첩 Pattern의 값·위치 전달 확인 |
-| A6 | 행 재정렬·병합·분할·삽입·삭제·복구 후 변경된 열 값과 위치로 검증되는지 확인 |
-| A7·A8 | R4 대상 실패 분기의 Error 호출 확인, 설정 오류·순수 변환·후보 인코딩 복구의 기존 결과 회귀 검증 |
-| A9·A10 | 예외 없는 입력 유지·기록·복구와 사용자 정의 예외 확인, 중첩 `IfLength` 및 파일 기록 실패의 예외 전파 확인 |
+| A6 | 행 재정렬·병합·분할·삽입·삭제 후 변경된 열 값과 위치로 검증되는지 확인 |
+| A7·A8 | R4 대상 실패 분기의 Error 발생과 속성 확인, 설정 오류·순수 변환·후보 인코딩 복구의 기존 결과 회귀 검증 |
+| A9·A10 | `error=` 제거·데이터 실패 예외 타입 확인, 중첩 `IfLength`의 예외 전파 확인 |
 | A11·A12 | 인용 개행 레코드 실패 후 다음 `row()` 읽기, 파싱·파일 디코딩 오류가 기존 경로로 전파되는지 확인 |
 | A13 | 변경된 사용자 정의 Error·Pattern·CSV 주입 샘플 실행, 한국어·영어 안내와 실제 API 일치·상대 링크 확인 |
 
 ## 호환성 주의사항
 
-기존 한 인자 Error·Pattern·Validator 직접 호출은 변경 대상이다. 새 계약으로 수정한 예시를 제공하되 구형 호출을 자동으로 유지하는 호환 계층은 만들지 않는다.
+기존 한 인자 Pattern·Validator 직접 호출, `error=` 인자와 호출형 Error 처리기, 데이터 실패의 `except ValueError`는 변경 대상이다. 새 계약으로 수정한 예시를 제공하되 구형 호출을 자동으로 유지하는 호환 계층은 만들지 않는다.
 
 데이터 마이그레이션이나 운영 배포는 이 계획에 포함하지 않는다. 검증 실패 시 이번 작업에서 만든 변경만 수정하며 사용자 변경이나 다른 이슈의 변경을 되돌리지 않는다.

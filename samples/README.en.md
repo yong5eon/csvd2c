@@ -25,6 +25,8 @@ File-based samples create inputs and outputs inside a `TemporaryDirectory` and c
 
 ## Example catalog
 
+Direct row calls supply a line number; direct column calls supply a line number and column identifier. Single in-memory examples explicitly use `1` and `0`. For actual files, injecting Validators into CSV supplies the final physical line and numeric index or configured column name. Error values are the failing Pattern's input, not tracked file originals.
+
 ### Reading and streaming
 
 | File | Topics |
@@ -44,8 +46,8 @@ File-based samples create inputs and outputs inside a `TemporaryDirectory` and c
 | [row_structure.py](./row_structure.py) | `Length`, `Remove`, `Reorder`, `Insert`, `Replace`, `Slice`, preserving originals |
 | [row_padding.py](./row_padding.py) | `Truncate`/`Pad` only for confirmed trailing excess or missing columns |
 | [row_merge_split.py](./row_merge_split.py) | `IfLength` and `Merge` for known comma-related damage, `Split` with `maxsplit` |
-| [reject_records.py](./reject_records.py) | Reject empty records, repeated headers, and length errors; log originals and reasons as JSONL |
-| [custom_errors.py](./custom_errors.py) | Row/column `Error` implementations, explicit logging and approved replacement policies |
+| [reject_records.py](./reject_records.py) | Inject Validators directly into CSV, catch row/column `Error` exceptions, log inputs, lines, columns, and messages as JSONL, and resume with `row()` |
+| [custom_errors.py](./custom_errors.py) | Row/column `Error` exception attributes and custom exceptions derived from the common `Error` |
 | [custom_patterns.py](./custom_patterns.py) | Row/column `Pattern` inheritance, row-before-column processing, adding provenance |
 
 ### Column cleansing and validation
@@ -67,7 +69,7 @@ File-based samples create inputs and outputs inside a `TemporaryDirectory` and c
 - Apply encoding recovery before `Strip`, replacements, or Unicode normalization. `TryRecoverEncoding` does not detect languages; the first strict decoding success wins. Permissive candidates such as cp1258 may not distinguish the actual encoding. Bytes already replaced by `�` cannot be restored.
 - `Merge`, `Pad`, defaults, and currency aliases are explicit provider policies in these samples, not safe automatic repairs for every irregular CSV. `Currency` handles only prefixes; split intervals using a separate policy.
 - `Date` requires year, month, and day. It does not invent years for `1-10` or `Feb-23`. `%b`/`%B` depend on the process locale, so date examples use numeric formats.
-- To continue after rejected records, separate reading from validation as in [reject_records.py](./reject_records.py). Do not reuse a `rows()` generator after a validation exception. Do not guess boundaries and continue after parsing or decoding errors. Recorded numbers refer to CSV record order including the header, not physical line numbers.
+- To continue after rejected records, separate reading from validation as in [reject_records.py](./reject_records.py). Do not reuse a `rows()` generator after a validation exception. Do not guess boundaries and continue after parsing or decoding errors. `row` is the last physical line number of the record.
 - Rejection logs contain original values. For actual customer data, check storage, access control, and de-identification policies.
 - For large inputs, use streaming or bounded batches rather than `list(csv.rows())`. Batch limits count records, not bytes per record. Small synthetic validation is not an actual 200GB performance test.
 - Sample validation imports the installed `csvd2c` in isolated subprocesses from another working directory. Do not use `python -O`, which disables assertions.

@@ -9,14 +9,17 @@ from io import TextIOWrapper
 from typing import (
 	Dict,
 	Generator,
-	Iterator,
 	List,
 	Optional,
 	Sequence,
 	Tuple,
 	Union,
+	TYPE_CHECKING,
 	overload,
 )
+
+if TYPE_CHECKING:
+	from _csv import Reader
 
 from .row import Validator as RowValidator
 from .column import Validator as ColumnValidator
@@ -57,7 +60,7 @@ class CSV(object):
 		self.check_validators(row, cols)
 		self.row_validator = row
 		self.column_validators = cols
-		self.reader: Optional[Iterator[List[str]]] = None
+		self.reader: Optional['Reader'] = None
 		self.text: Optional[TextIOWrapper] = None
 		self.header_data: Optional[List[str]] = None
 		return
@@ -141,7 +144,7 @@ class CSV(object):
 		Repeated calls consume additional records. Raise StopIteration at EOF.
 		The returned list is a copy so callers cannot change column mapping.
 		"""
-		source: Iterator[List[str]] = self.require_reader()
+		source: 'Reader' = self.require_reader()
 		self.header_data = next(source)
 		return self.header_data.copy()
 
@@ -204,12 +207,13 @@ class CSV(object):
 		An explicit header maps validated values to keys in their current order.
 		It does not consume a file header or change named validator mapping.
 		"""
-		source: Iterator[List[str]] = self.require_reader()
+		source: 'Reader' = self.require_reader()
 		output_header: Optional[Tuple[str, ...]] = self.prepare_header(header)
 		row_validator, column_validators = self.resolve_validators(row, cols)
-		indices: List[Tuple[int, ColumnValidator]] = self.column_indices(column_validators)
+		indices: List[Tuple[int, Union[int, str], ColumnValidator]] = self.column_indices(column_validators)
 		record: List[str] = next(source)
-		record = self.validate(record, row_validator, indices)
+		line: int = source.line_num
+		record = self.validate(record, line, row_validator, indices)
 		return self.format_record(record, output_header)
 
 	@overload
@@ -272,10 +276,10 @@ class CSV(object):
 		An explicit output header is copied at call time and maps validated
 		values to keys without rearranging columns.
 		"""
-		source: Iterator[List[str]] = self.require_reader()
+		source: 'Reader' = self.require_reader()
 		output_header: Optional[Tuple[str, ...]] = self.prepare_header(header)
 		row_validator, column_validators = self.resolve_validators(row, cols)
-		indices: List[Tuple[int, ColumnValidator]] = self.column_indices(column_validators)
+		indices: List[Tuple[int, Union[int, str], ColumnValidator]] = self.column_indices(column_validators)
 		return self.iterate(source, self.header_data, row_validator, indices, output_header)
 
 	def prepare_header(
@@ -310,7 +314,7 @@ class CSV(object):
 			)
 		return dict(zip(header, record))
 
-	def require_reader(self) -> Iterator[List[str]]:
+	def require_reader(self) -> 'Reader':
 		if self.reader is None:
 			raise RuntimeError('Open the CSV file before reading records')
 		return self.reader
@@ -373,16 +377,23 @@ class CSV(object):
 				Tuple[ColumnValidator, ...],
 			]
 		],
-	) -> List[Tuple[int, ColumnValidator]]:
+	) -> List[Tuple[int, Union[int, str], ColumnValidator]]:
 		if cols is None:
 			return []
 		if isinstance(cols, tuple):
-			return list(enumerate(cols))
+			return [
+				(
+					index,
+					index,
+					validator,
+				)
+				for index, validator in enumerate(cols)
+			]
 		if not cols:
 			return []
 		if self.header_data is None:
 			raise RuntimeError('Call header() before using named column validators')
-		indices: List[Tuple[int, ColumnValidator]] = []
+		indices: List[Tuple[int, Union[int, str], ColumnValidator]] = []
 		for name, validator in cols.items():
 			count: int = self.header_data.count(name)
 			if count != 1:
@@ -392,18 +403,23 @@ class CSV(object):
 						count,
 					)
 				)
-			indices.append((self.header_data.index(name), validator))
+			indices.append((
+				self.header_data.index(name),
+				name,
+				validator,
+			))
 		return indices
 
 	def validate(
 		self,
 		record: List[str],
+		line: int,
 		row: Optional[RowValidator],
-		indices: List[Tuple[int, ColumnValidator]],
+		indices: List[Tuple[int, Union[int, str], ColumnValidator]],
 	) -> List[str]:
 		if row is not None:
-			record = row(record)
-		for index, validator in indices:
+			record = row(record, line)
+		for index, column, validator in indices:
 			if index >= len(record):
 				raise ValueError(
 					'Column index {} is missing from a record with {} columns'.format(
@@ -411,15 +427,15 @@ class CSV(object):
 						len(record),
 					)
 				)
-			record[index] = validator(record[index])
+			record[index] = validator(record[index], line, column)
 		return record
 
 	def iterate(
 		self,
-		source: Iterator[List[str]],
+		source: 'Reader',
 		header: Optional[List[str]],
 		row: Optional[RowValidator],
-		indices: List[Tuple[int, ColumnValidator]],
+		indices: List[Tuple[int, Union[int, str], ColumnValidator]],
 		output_header: Optional[Tuple[str, ...]],
 	) -> Generator[Union[List[str], Dict[str, str]], None, None]:
 		while True:
@@ -427,7 +443,8 @@ class CSV(object):
 				raise RuntimeError('The CSV context or header has changed')
 			try:
 				record: List[str] = next(source)
+				line: int = source.line_num
 			except StopIteration:
 				return
-			record = self.validate(record, row, indices)
+			record = self.validate(record, line, row, indices)
 			yield self.format_record(record, output_header)

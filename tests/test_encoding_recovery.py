@@ -2,7 +2,6 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List
 from unittest import (
 	TestCase,
 	main,
@@ -21,21 +20,6 @@ from csvd2c.column.patterns import (
 )
 
 
-class Recover(Error):
-	def __init__(self) -> None:
-		self.values: List[str] = []
-		return
-
-	def __call__(self, col: str) -> str:
-		self.values.append(col)
-		return 'replacement'
-
-
-class Fail(Error):
-	def __call__(self, col: str) -> str:
-		raise RuntimeError('Handler failure')
-
-
 class EncodingRecoveryTests(TestCase):
 	"""
 	Verify byte preservation, conditional recovery, and streaming integration.
@@ -45,12 +29,12 @@ class EncodingRecoveryTests(TestCase):
 		original: str = 'Công ty'
 		raw: bytes = original.encode('cp1258')
 		col: str = raw.decode('utf-8', errors='surrogateescape')
-		self.assertEqual(RecoverEncoding('cp1258')(col), original)
+		self.assertEqual(RecoverEncoding('cp1258')(col, 1, 0), original)
 		self.assertEqual(
 			Validator(
 				IfUndecodable(RecoverEncoding('cp1258')),
 				RejectSurrogates(),
-			)(col),
+			)(col, 1, 0),
 			original,
 		)
 		return
@@ -58,11 +42,11 @@ class EncodingRecoveryTests(TestCase):
 	def test_cp949_and_read_encoding_override(self) -> None:
 		raw: bytes = '홍길동'.encode('cp949')
 		col: str = raw.decode('utf-8', errors='surrogateescape')
-		self.assertEqual(RecoverEncoding('cp949')(col), '홍길동')
+		self.assertEqual(RecoverEncoding('cp949')(col, 1, 0), '홍길동')
 		utf8: bytes = 'Công ty'.encode('utf-8')
 		col = utf8.decode('ascii', errors='surrogateescape')
 		self.assertEqual(
-			RecoverEncoding('utf-8', read_encoding='ascii')(col),
+			RecoverEncoding('utf-8', read_encoding='ascii')(col, 1, 0),
 			'Công ty',
 		)
 		return
@@ -71,7 +55,7 @@ class EncodingRecoveryTests(TestCase):
 		raw: bytes = b'\xc3\xa9\xff'
 		col: str = raw.decode('utf-8', errors='surrogateescape')
 		self.assertEqual(col.encode('utf-8', errors='surrogateescape'), raw)
-		self.assertEqual(RecoverEncoding('latin-1')(col), raw.decode('latin-1'))
+		self.assertEqual(RecoverEncoding('latin-1')(col, 1, 0), raw.decode('latin-1'))
 		return
 
 	def test_condition_boundaries_and_pass_through(self) -> None:
@@ -85,47 +69,41 @@ class EncodingRecoveryTests(TestCase):
 			'\udc7f',
 			'\udd00',
 		):
-			self.assertEqual(pattern(value), value)
+			self.assertEqual(pattern(value, 1, 0), value)
 		for marker in (
 			'\udc80',
 			'\udcff',
 		):
-			self.assertEqual(pattern('a' + marker), 'A' + marker)
+			self.assertEqual(pattern('a' + marker, 1, 0), 'A' + marker)
 		return
 
 	def test_replacement_characters_are_not_repaired(self) -> None:
-		self.assertEqual(RecoverEncoding('utf-8')('\ufffd'), '\ufffd')
-		with self.assertRaises(ValueError):
+		self.assertEqual(RecoverEncoding('utf-8')('\ufffd', 1, 0), '\ufffd')
+		with self.assertRaises(Error):
 			Validator(
 				IfUndecodable(RecoverEncoding('cp1258')),
 				RejectReplacementCharacter(),
-			)('\ufffd')
+			)('\ufffd', 1, 0)
 		return
 
-	def test_failures_and_handlers(self) -> None:
-		handler = Recover()
+	def test_failures_raise_column_error(self) -> None:
 		for value in (
 			'\udcff',
 			'\ud800',
 		):
-			with self.assertRaises(ValueError):
-				RecoverEncoding('utf-8')(value)
-			self.assertEqual(
-				RecoverEncoding('utf-8', error=handler)(value),
-				'replacement',
-			)
-		self.assertEqual(handler.values, ['\udcff', '\ud800'])
-		with self.assertRaisesRegex(RuntimeError, 'Handler failure'):
-			IfUndecodable(RecoverEncoding('utf-8', error=Fail()))('\udcff')
-		with self.assertRaises(ValueError):
-			IfUndecodable(RecoverEncoding('utf-8'))('\udcff')
+			with self.assertRaises(Error) as context:
+				RecoverEncoding('utf-8')(value, 4, 'description')
+			self.assertEqual(context.exception.value, value)
+			self.assertEqual(context.exception.row, 4)
+			self.assertEqual(context.exception.column, 'description')
+		with self.assertRaises(Error) as context:
+			IfUndecodable(RecoverEncoding('utf-8'))('\udcff', 1, 0)
+		self.assertEqual(context.exception.value, '\udcff')
 		return
 
 	def test_configuration_errors(self) -> None:
 		with self.assertRaises(LookupError):
 			RecoverEncoding('unknown-encoding')
-		with self.assertRaises(TypeError):
-			RecoverEncoding('utf-8', error='invalid')
 		with self.assertRaises(RuntimeError):
 			IfUndecodable('invalid')
 		return

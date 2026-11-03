@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from typing import Union
+
 from re import compile
 from ..Pattern import Pattern
 
@@ -28,5 +30,10 @@ class RegexReplace(Pattern):
 		self.count = count
 		return
 
-	def __call__(self, col: str) -> str:
-		return self.expression.sub(self.replacement, col, count=self.count)
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		return self.expression.sub(self.replacement, value, count=self.count)

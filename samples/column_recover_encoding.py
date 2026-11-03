@@ -46,7 +46,7 @@ def main() -> None:
 			),
 			RejectSurrogates(),
 		)
-		assert candidates(korean) == '홍길동'
+		assert candidates(korean, 1, 0) == '홍길동'
 		print('Candidate order is policy, not language detection; first success wins')
 	return
 

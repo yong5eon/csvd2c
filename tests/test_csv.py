@@ -11,7 +11,10 @@ from io import (
 )
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List
+from typing import (
+	List,
+	Union,
+)
 from unittest import (
 	TestCase,
 	main,
@@ -24,33 +27,58 @@ from csvd2c.row import (
 	Validator as RowValidator,
 )
 from csvd2c.column import (
+	Error as ColumnError,
 	Pattern as ColumnPattern,
 	Validator as ColumnValidator,
 )
 
 
 class Strip(ColumnPattern):
-	def __call__(self, col: str) -> str:
-		return col.strip()
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		return value.strip()
 
 
 class Upper(ColumnPattern):
-	def __call__(self, col: str) -> str:
-		return col.upper()
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		return value.upper()
 
 
 class Reverse(RowPattern):
-	def __call__(self, row: List[str]) -> List[str]:
-		return list(reversed(row))
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
+		return list(reversed(value))
 
 
 class Reject(ColumnPattern):
-	def __call__(self, col: str) -> str:
-		raise ValueError('Rejected value')
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		raise ColumnError('Rejected value', row, column, value)
 
 
 class Stop(ColumnPattern):
-	def __call__(self, col: str) -> str:
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
 		raise StopIteration('Validator stopped')
 
 
@@ -393,7 +421,7 @@ class CSVTests(TestCase):
 	def test_validator_errors_propagate(self) -> None:
 		csv = CSV(cols=(ColumnValidator(Reject()),))
 		with csv.open(str(self.path)):
-			with self.assertRaisesRegex(ValueError, 'Rejected value'):
+			with self.assertRaisesRegex(ColumnError, 'Rejected value'):
 				next(csv.rows())
 		return
 

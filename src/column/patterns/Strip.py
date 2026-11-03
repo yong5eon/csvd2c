@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 
-from typing import Optional
+from typing import (
+	Optional,
+	Union,
+)
 from ..Pattern import Pattern
 
 
@@ -15,5 +18,10 @@ class Strip(Pattern):
 		self.chars = chars
 		return
 
-	def __call__(self, col: str) -> str:
-		return col.strip(self.chars)
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		return value.strip(self.chars)

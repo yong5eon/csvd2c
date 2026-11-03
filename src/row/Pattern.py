@@ -24,13 +24,21 @@ class Pattern(ABC):
 			self.compare = compare
 			return
 
-		def __call__(self, row: List[str]) -> List[str]:
-			if not eq(row, self.compare):
-				raise ValueError('{} is not equal to {}'.format(row, self.compare))
-			return row  # if true, return parameter
+		def __call__(
+			self,
+			value: List[str],
+			row: int,
+		) -> List[str]:
+			if not eq(value, self.compare):
+				raise Error('{} is not equal to {}'.format(value, self.compare), row, value)
+			return value  # if true, return parameter
 	"""
 	@abstractmethod
-	def __call__(self, row: List[str]) -> List[str]:
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
 		raise NotImplementedError('Subclasses must implement this method')
 
 	def __repr__(self):

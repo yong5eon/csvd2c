@@ -5,7 +5,10 @@ from re import (
 	compile,
 	escape,
 )
-from typing import Optional
+from typing import (
+	Optional,
+	Union,
+)
 from ..Pattern import Pattern
 from ..Error import Error
 
@@ -23,7 +26,6 @@ class Number(Pattern):
 		*,
 		decimal: str = '.',
 		thousands: Optional[str] = None,
-		error: Optional[Error] = None,
 	) -> None:
 		for separator in (
 			decimal,
@@ -38,21 +40,31 @@ class Number(Pattern):
 				raise ValueError('Separators must be single non-alphanumeric characters')
 		if decimal is None or decimal == thousands:
 			raise ValueError('Decimal separator is required and must differ from thousands')
-		if error is not None and not isinstance(error, Error):
-			raise TypeError('error must be a column Error instance or None')
 		integer: str = r'[0-9]+'
 		if thousands is not None:
 			integer = r'(?:[0-9]+|[0-9]{1,3}(?:' + escape(thousands) + r'[0-9]{3})+)'
 		self.expression = compile(r'[+-]?' + integer + '(?:' + escape(decimal) + r'[0-9]+)?')
 		self.decimal = decimal
 		self.thousands = thousands
-		self.error = error
 		return
 
-	def __call__(self, col: str) -> str:
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		try:
+			result: str = self.normalize(value)
+		except ValueError as cause:
+			raise Error(str(cause), row, column, value)
+		return result
+
+	def normalize(self, col: str) -> str:
+		"""
+		Normalize a decimal string without record context or error handling.
+		"""
 		if self.expression.fullmatch(col) is None:
-			if self.error is not None:
-				return self.error(col)
 			raise ValueError('Value is not a valid decimal with the configured grouping')
 		text: str = col
 		if self.thousands is not None:

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+from typing import Union
+
 from ..Pattern import Pattern
 
 
@@ -23,5 +25,10 @@ class Replace(Pattern):
 		self.count = count
 		return
 
-	def __call__(self, col: str) -> str:
-		return col.replace(self.old, self.new, self.count)
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
+		return value.replace(self.old, self.new, self.count)

@@ -22,12 +22,12 @@ def main() -> None:
 		Replace('Company', 'Co.'),
 		RegexReplace(r'\b([0-9]+)\b', r'[\1]'),
 	)
-	result: str = validator(' \tＡ Company\n １２３ ')
+	result: str = validator(' \tＡ Company\n １２３ ', 1, 0)
 	assert result == 'A Co. [123]'
-	assert UnicodeNormalize('NFC')('e\u0301') == 'é'
-	assert CaseFold()('Straße') == 'strasse'
-	assert Lower()('ABC') == 'abc'
-	assert Upper()('abc') == 'ABC'
+	assert UnicodeNormalize('NFC')('e\u0301', 1, 0) == 'é'
+	assert CaseFold()('Straße', 1, 0) == 'strasse'
+	assert Lower()('ABC', 1, 0) == 'abc'
+	assert Upper()('abc', 1, 0) == 'ABC'
 	print(result)
 	return
 

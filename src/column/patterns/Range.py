@@ -23,8 +23,6 @@ class Range(Pattern):
 		self,
 		minimum: Optional[Union[Decimal, int, str]] = None,
 		maximum: Optional[Union[Decimal, int, str]] = None,
-		*,
-		error: Optional[Error] = None,
 	) -> None:
 		if minimum is None and maximum is None:
 			raise ValueError('At least one range bound is required')
@@ -39,7 +37,7 @@ class Range(Pattern):
 				continue
 			if not isinstance(bound, (Decimal, str)) and type(bound) is not int:
 				raise TypeError('Range bounds must be Decimal, integer, string, or None')
-			value: Decimal = bound if isinstance(bound, Decimal) else Decimal(self.number(str(bound)))
+			value: Decimal = bound if isinstance(bound, Decimal) else Decimal(self.number.normalize(str(bound)))
 			if not value.is_finite():
 				raise ValueError('Range bounds must be finite')
 			bounds.append(value)
@@ -47,23 +45,21 @@ class Range(Pattern):
 		self.maximum: Optional[Decimal] = bounds[1]
 		if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
 			raise ValueError('minimum cannot exceed maximum')
-		if error is not None and not isinstance(error, Error):
-			raise TypeError('error must be a column Error instance or None')
-		self.error = error
 		return
 
-	def __call__(self, col: str) -> str:
+	def __call__(
+		self,
+		value: str,
+		row: int,
+		column: Union[int, str],
+	) -> str:
 		try:
-			value: Decimal = Decimal(self.number(col))
-		except ValueError:
-			if self.error is not None:
-				return self.error(col)
-			raise
+			number: Decimal = Decimal(self.number.normalize(value))
+		except ValueError as cause:
+			raise Error(str(cause), row, column, value)
 		if (
-			(self.minimum is not None and value < self.minimum)
-			or (self.maximum is not None and value > self.maximum)
+			(self.minimum is not None and number < self.minimum)
+			or (self.maximum is not None and number > self.maximum)
 		):
-			if self.error is not None:
-				return self.error(col)
-			raise ValueError('Value is outside the configured numeric range')
-		return col
+			raise Error('Value is outside the configured numeric range', row, column, value)
+		return value

@@ -27,7 +27,7 @@ def main() -> None:
 		Slice(0, 3),
 		Length(3),
 	)
-	result: list[str] = validator(original)
+	result: list[str] = validator(original, 1)
 	assert result == [
 		'name',
 		'date',
@@ -41,7 +41,7 @@ def main() -> None:
 	assert Slice(step=-1)([
 		'a',
 		'b',
-	]) == [
+	], 1) == [
 		'b',
 		'a',
 	]

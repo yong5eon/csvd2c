@@ -19,8 +19,12 @@ class Truncate(Pattern):
 		self.count = count
 		return
 
-	def __call__(self, row: List[str]) -> List[str]:
-		return row[:self.count]
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
+		return value[:self.count]
 
 	def __repr__(self) -> str:
 		return 'Truncate({!r})'.format(self.count)

@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from typing import (
-	List,
-	Optional,
-)
+from typing import List
 from ..Error import Error
 from ..Pattern import Pattern
 
@@ -15,15 +12,11 @@ class RejectEmpty(Pattern):
 	Whitespace-only fields are not empty. No automatic row skipping occurs.
 	"""
 
-	def __init__(self, *, error: Optional[Error] = None) -> None:
-		if error is not None and not isinstance(error, Error):
-			raise TypeError('error must be a row Error instance or None')
-		self.error = error
-		return
-
-	def __call__(self, row: List[str]) -> List[str]:
-		if not any(value != '' for value in row):
-			if self.error is not None:
-				return self.error(row.copy())
-			raise ValueError('Empty record is not allowed')
-		return row
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
+		if not any(field != '' for field in value):
+			raise Error('Empty record is not allowed', row, value)
+		return value

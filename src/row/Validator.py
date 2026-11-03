@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 
 from .Pattern import Pattern
-from typing import Tuple, List
+from typing import (
+	Tuple,
+	List,
+)
 
 __all__ = (
 	'Validator',
@@ -19,10 +22,14 @@ class Validator(object):
 		self.patterns: Tuple[Pattern, ...] = args
 		return
 
-	def __call__(self, row: List[str]) -> List[str]:
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
 		for pattern in self.patterns:
-			row = pattern(row)
-		return row
+			value = pattern(value, row)
+		return value
 
 	def __repr__(self):
 		return 'Validator({})'.format(

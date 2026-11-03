@@ -26,8 +26,12 @@ class Pad(Pattern):
 		self.value = value
 		return
 
-	def __call__(self, row: List[str]) -> List[str]:
-		return row + [self.value] * max(0, self.count - len(row))
+	def __call__(
+		self,
+		value: List[str],
+		row: int,
+	) -> List[str]:
+		return value + [self.value] * max(0, self.count - len(value))
 
 	def __repr__(self) -> str:
 		return 'Pad({!r}, {!r})'.format(self.count, self.value)
