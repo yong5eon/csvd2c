@@ -22,6 +22,7 @@ When a header Validator is injected, `open()` reads and validates the first reco
 ## Contents
 
 - [Usage rules](#usage-rules): encoding candidate checks, modes, output types, and lifetime
+- [Field size limit](#field-size-limit): constructor setting, maximum constant, and global effects
 - [Read range](#read-range): selecting records with `offset` and `limit`
 - [Header validation](#header-validation): header Validator injection, provided Patterns, renaming, and migration
 - [Row structure Patterns](#row-structure-patterns): reordering, merging, splitting, and error handling
@@ -61,6 +62,57 @@ with CSV(
 - Decoding, parsing, and validation errors propagate. Consumed records are not automatically retried, and errors are not automatically recovered.
 - `surrogateescape` preserves undecodable bytes but does not repair them. Validate these values before sending them to a database. Already stored `�` requires separate validation.
 - Input is not loaded in full, but oversized records can increase memory usage. Do not indiscriminately increase the CSV parser's field size limit.
+
+## Field size limit
+
+`CSV(field_size_limit=None)` leaves Python's current standard CSV parser limit unchanged. `None` means neither unlimited input nor restoring the initial value. The default is usually `131072` characters; values changed by other code are also preserved.
+
+When specified, the constructor calls `csv.field_size_limit()` after validation. Accepted values are integers from `0` through `MAX_FIELD_SIZE`, inclusive.
+
+- Import `MAX_FIELD_SIZE` from `csvd2c`; its value is `2_147_483_647`. It is not computed from the runtime's maximum.
+- Negative or oversized settings raise `ValueError` during construction. Invalid types, including `bool`, strings, and floats, raise `TypeError`. Invalid constructor arguments do not change the global limit.
+- The limit counts characters, not bytes, including for multibyte text.
+- Fields equal to the limit are accepted; longer fields raise the standard `csv.Error`. The same rule applies to headers, records skipped by offset, and data records.
+- `0` permits only empty fields. An empty record is different from an empty-string field.
+
+This example uses a small limit to accept a boundary field and reject an oversized field. It explicitly cleans up the temporary file and restores the previous global setting.
+
+```python
+from csv import Error, field_size_limit
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from csvd2c import CSV, MAX_FIELD_SIZE
+
+previous = field_size_limit()
+try:
+  with TemporaryDirectory() as directory:
+    path = Path(directory) / "input.csv"
+    path.write_text("abc\nabcd\n", encoding="utf-8")
+    with CSV(field_size_limit=3).open(str(path)) as data:
+      print(data.row())
+      try:
+        data.row()
+      except Error:
+        print("Field limit exceeded")
+  CSV(field_size_limit=MAX_FIELD_SIZE)
+  print(field_size_limit() == MAX_FIELD_SIZE)
+finally:
+  field_size_limit(previous)
+```
+
+Expected output:
+
+```text
+['abc']
+Field limit exceeded
+True
+```
+
+The setting is shared by all standard CSV readers in the same interpreter, not owned by an instance. Readers created earlier and other open `CSV` instances use subsequent changes. The last setting applies; instances do not enforce their constructor value again after external code changes it. `open()`, `close()`, and normal or exceptional context exit do not restore the limit.
+
+The `try/finally` above illustrates caller-managed temporary settings; it does not guarantee independent limits for concurrent readers.
+
+Setting the maximum does not immediately allocate that much memory, but parser buffers grow with actual field length. The maximum guarantees neither memory safety nor the ability to process roughly 2.1 billion characters. Choose a limit appropriate for expected fields, especially with unterminated quoted fields or large untrusted inputs.
 
 ## Read range
 

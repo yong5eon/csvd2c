@@ -4,7 +4,10 @@ from contextlib import (
 	ExitStack,
 	contextmanager,
 )
-from csv import reader
+from csv import (
+	field_size_limit as csv_field_size_limit,
+	reader,
+)
 from io import TextIOWrapper
 from typing import (
 	Dict,
@@ -31,7 +34,10 @@ from .column import Validator as ColumnValidator
 
 __all__ = (
 	'CSV',
+	'MAX_FIELD_SIZE',
 )
+
+MAX_FIELD_SIZE: int = 2_147_483_647
 
 
 class CSV(object):
@@ -58,6 +64,7 @@ class CSV(object):
 		] = None,
 		offset: int = 0,
 		limit: Optional[int] = None,
+		field_size_limit: Optional[int] = None,
 	) -> None:
 		"""
 		Configure decoding, parsing, validators, and the default read range.
@@ -65,6 +72,11 @@ class CSV(object):
 		offset is the number of records to skip and limit is the maximum
 		number of records to read with row() and rows(); None means no limit.
 		A header read by a header Validator is not counted.
+		field_size_limit leaves the current global CSV limit unchanged when
+		None. Otherwise it must be an integer from 0 to MAX_FIELD_SIZE;
+		bool is rejected. It sets the limit in characters for all CSV readers
+		in this interpreter, including existing readers. Closing does not
+		restore it, and the maximum does not guarantee sufficient memory.
 		"""
 		self.encoding = encoding
 		self.errors = errors
@@ -88,6 +100,12 @@ class CSV(object):
 		self.raw_data: Optional[List[str]] = None
 		self.skip: int = 0
 		self.remaining: Optional[int] = None
+		if field_size_limit is not None:
+			if isinstance(field_size_limit, bool) or not isinstance(field_size_limit, int):
+				raise TypeError('field_size_limit must be an integer or None')
+			if field_size_limit < 0 or field_size_limit > MAX_FIELD_SIZE:
+				raise ValueError('field_size_limit must be between 0 and {}'.format(MAX_FIELD_SIZE))
+			csv_field_size_limit(field_size_limit)
 		return
 
 	@contextmanager
