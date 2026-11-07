@@ -136,6 +136,36 @@ async function githubRequest(path, token, fetchImpl, options = {}) {
   return result;
 }
 
+async function findPullRequestIssueDirectory(repositoryPath, pullRequestNumber, token, fetchImpl) {
+  const candidates = [];
+  for (let page = 1; page <= 30; page += 1) {
+    const files = await githubRequest(
+      `${repositoryPath}/pulls/${pullRequestNumber}/files?per_page=100&page=${page}`,
+      token,
+      fetchImpl,
+    );
+    if (!Array.isArray(files)) {
+      throw new Error('GitHub API did not return the pull request file list');
+    }
+    for (const file of files) {
+      if (typeof file?.filename !== 'string' || typeof file.status !== 'string') {
+        throw new Error('GitHub API returned an invalid pull request file');
+      }
+      if (file.status !== 'removed'
+        && /^issues\/(?:bug|fix|feature|task)\/[A-Za-z0-9][A-Za-z0-9._-]*\/IR\.md$/.test(file.filename)) {
+        candidates.push(file.filename.slice(0, -'/IR.md'.length));
+      }
+    }
+    if (files.length < 100) {
+      if (candidates.length !== 1) {
+        throw new Error(`Expected exactly one changed issue IR.md, found ${candidates.length} in PR #${pullRequestNumber}`);
+      }
+      return candidates[0];
+    }
+  }
+  throw new Error(`Pull request file list reached GitHub's 3000-file limit: PR #${pullRequestNumber}`);
+}
+
 async function githubGraphqlRequest(query, variables, token, fetchImpl) {
   const response = await fetchImpl(`${API_URL}/graphql`, {
     method: 'POST',
@@ -295,7 +325,8 @@ export async function createPullRequest({
     return { status: 'default-branch' };
   }
 
-  const issueDirectory = parseIssueBranch(branch);
+  const agentBranch = /^(?:copilot|codex)\/.+$/.test(branch);
+  let issueDirectory = agentBranch ? null : parseIssueBranch(branch);
   const encodedRepository = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
   const query = new URLSearchParams({
     state: 'open',
@@ -319,7 +350,27 @@ export async function createPullRequest({
     if (typeof existing.node_id !== 'string' || !existing.node_id) {
       throw new Error('GitHub API did not return a node ID for the open pull request');
     }
+    if (agentBranch) {
+      if (openPullRequests.length !== 1) {
+        throw new Error('GitHub API returned multiple open pull requests for the agent branch');
+      }
+      if (typeof existing.head?.sha !== 'string' || !existing.head.sha) {
+        throw new Error('GitHub API did not return the agent pull request head SHA');
+      }
+      if (existing.head.sha !== sha) {
+        return { status: 'stale-agent-push' };
+      }
+      issueDirectory = await findPullRequestIssueDirectory(
+        encodedRepository,
+        existing.number,
+        token,
+        fetchImpl,
+      );
+    }
   } else {
+    if (agentBranch) {
+      return { status: 'no-open-agent-pull-request' };
+    }
     const compare = await githubRequest(
       `${encodedRepository}/compare/${encodeURIComponent(base)}...${encodeURIComponent(sha)}`,
       token,
@@ -348,12 +399,10 @@ export async function createPullRequest({
     }
   }
 
-  const { labels, assignees, milestone, nodeId: issueNodeId } = await getIssueMetadata(
-    encodedRepository,
-    issueDirectory,
-    token,
-    fetchImpl,
-  );
+  let metadata;
+  if (!agentBranch) {
+    metadata = await getIssueMetadata(encodedRepository, issueDirectory, token, fetchImpl);
+  }
   const documents = {};
   for (const fileName of ISSUE_DOCUMENTS) {
     documents[fileName] = await readOptionalFile(join(rootDirectory, issueDirectory, fileName));
@@ -379,6 +428,10 @@ export async function createPullRequest({
         body: JSON.stringify({ title: pullRequest.title, body: pullRequest.body }),
       },
     );
+    if (agentBranch) {
+      return { status: 'already-open', number: existing.number };
+    }
+    const { labels, assignees, milestone, nodeId: issueNodeId } = metadata;
     await addPullRequestLabels(encodedRepository, existing.number, labels, token, fetchImpl);
     await addPullRequestAssignees(encodedRepository, existing.number, assignees, token, fetchImpl);
     await setPullRequestMilestone(encodedRepository, existing.number, milestone, token, fetchImpl);
@@ -386,6 +439,7 @@ export async function createPullRequest({
     return { status: 'already-open', number: existing.number };
   }
 
+  const { labels, assignees, milestone, nodeId: issueNodeId } = metadata;
   const created = await githubRequest(
     `${encodedRepository}/pulls`,
     token,
