@@ -17,7 +17,7 @@ flowchart LR
   E --> F["Return list"]
 ```
 
-When a header Validator is injected, `open()` reads and validates the first record as the header. Subsequent `row()` or `rows()` calls read records and apply row validation before column validation. Errors propagate to the caller.
+When a header Validator is injected, `open()` reads and validates the first record as the header. Subsequent `next(csv)`, `row()`, or `rows()` calls read records and apply row validation before column validation. Errors propagate to the caller.
 
 ## Contents
 
@@ -34,14 +34,14 @@ When a header Validator is injected, `open()` reads and validates the first reco
 - `detect_encoding(path, *args)` checks an initial sample of up to 1MiB in candidate order and returns the first success. One additional byte determines whether the sample reaches EOF. Missing candidates, empty files, and failure of all candidates are errors. BOMs do not automatically select candidates; use `utf-8-sig` for UTF-8 BOM handling. Sample success guarantees neither the actual encoding nor whole-file validity.
 - `CSV.open(path)` wraps a binary file in `TextIOWrapper` and closes it on context exit. Without a header Validator, it does not consume the first record.
 - `open(path, mode="rb", header=None, offset=None, limit=None)` supports read-only `rb`, `r`, and `rt`. Text modes use the constructor's encoding, errors, and newline settings. Write, append, and update modes are rejected before opening the file. See [header validation](#header-validation) for `header` and [read range](#read-range) for `offset` and `limit`.
-- `close()` immediately closes the current stream and clears the header, reading state, and range. Repeated calls are safe; generators from a closed stream cannot be reused.
+- `close()` immediately closes the current stream and clears the header, reading state, and range. Repeated calls are safe. Calling `next(csv)` on a closed stream raises `RuntimeError`; a `rows()` generator from that stream cannot be reused.
 - `header()` reads no record and returns a copy of the header validated by `open()`, or `None` without header validation.
-- `row()` returns the next record as a list. `rows()` is a generator of remaining records as lists. Both share the file position and must be used inside the open context. Without a header Validator, the first result of a file with a header is the header record.
-- `row()` raises `StopIteration` at EOF; `rows()` ends normally.
+- `next(csv)` and `row()` return the next record as a list. `rows()` is a generator of remaining records as lists. All three share the file position and must be used inside the open context. Without a header Validator, the first result of a file with a header is the header record.
+- `iter(csv)` returns the same `CSV` instance. `next(csv)` raises `StopIteration` at EOF or the read limit; `for record in csv` and `rows()` end normally. Reopening the same instance starts a new read state.
 - Constructor `row` and `column` configure row and column Validators. `row(row=..., column=...)` and `rows(row=..., column=...)` override them only for that call. Omitted arguments or `None` use constructor settings; no settings means no validation.
 - Dictionary `column` validates only named columns of the validated header and requires a header Validator. Missing or duplicate selected names are errors. Tuple `column` validates only the specified prefix.
 - Row validation runs before column validation. Header/record column count equality is not enforced automatically; define structural rules in row Patterns. Missing selected record columns are errors.
-- `rows()` selects validators and header mapping when called. Closing the context or reopening the file invalidates existing generators.
+- `rows()` selects validators and header mapping when called. A validation error propagates after consuming its record, so the next `next(csv)` or `row()` call inside the open context reads the following record. A Validator-raised `StopIteration` becomes `RuntimeError` rather than appearing as iterator exhaustion. Resuming safely after decoding or parsing errors is not guaranteed.
 - Use `delimiter="\t"` for TSV. The default delimiter is comma, with `strict=True` CSV parsing. `escapechar` defaults to `None`; set `escapechar="\\"` to read input such as quoted fields containing backslash-escaped quotes. Parsing and configuration errors follow Python's standard `csv.reader`.
 
 For example, if the first record in `input.tsv` is a header and the next record is `1<TAB>"Acme \"quoted\" name"`, this configuration reads the data row as `['1', 'Acme "quoted" name']`:
@@ -116,11 +116,11 @@ Setting the maximum does not immediately allocate that much memory, but parser b
 
 ## Read range
 
-`offset` is the number of records to skip, and `limit` is the maximum number of records to read with `row()` and `rows()`. You can process part of a file without counting records yourself or reading records to discard with an empty Validator.
+`offset` is the number of records to skip, and `limit` is the maximum number of records to read with `next(csv)`, `row()`, and `rows()`. You can process part of a file without counting records yourself or reading records to discard with an empty Validator.
 
 ### Configuration
 
-Set the range only on the `CSV` constructor and `open()`. `row()` and `rows()` take no range arguments.
+Set the range only on the `CSV` constructor and `open()`. `next(csv)`, `row()`, and `rows()` take no range arguments.
 
 | Location | Arguments | Meaning |
 | --- | --- | --- |
@@ -144,12 +144,12 @@ Positions start at 0. The unit is a logical record, not a physical line, so a re
 
 ### Reading flow
 
-Each `row()` call, and each record requested by `rows()`, is processed in this order:
+Each `next(csv)` or `row()` call, and each record requested by `rows()`, is processed in this order:
 
 ```mermaid
 flowchart TD
   A["Record requested"] --> B{"limit reached?"}
-  B -- Yes --> C["End: row() raises StopIteration, rows() stops"]
+  B -- Yes --> C["End: next(csv) and row() raise StopIteration; rows() stops"]
   B -- No --> D{"offset records left to skip?"}
   D -- Yes --> E["Read a record and discard it without validation"] --> D
   D -- No --> F["Read a record, use 1 of the limit"]
@@ -160,7 +160,7 @@ flowchart TD
 - The offset records are read and discarded on the first record request. `open()` does not read them. Skipped records are not validated by row or column Validators, but decoding and parsing errors propagate because the record boundary cannot be determined. An offset larger than the number of records ends reading immediately.
 - The limit counts records read, not successful records. Records that fail row or column validation count as one each. Decoding or parsing errors that yield no record are not counted.
 - After the limit is reached, the next record is not read, so a parsing error in that record is not raised. `limit=0` reads no record, including the offset records.
-- `row()` and `rows()` share the same range state. Mixed calls, or calling `rows()` again after a validation failure, continue within the same range.
+- `next(csv)`, `row()`, and `rows()` share the same range state. Mixed calls, or calling one of them again after a validation failure, continue within the same range.
 - Without a range, reading continues to the end of the file as before.
 
 ### Example
@@ -230,10 +230,10 @@ flowchart TD
   Validate -- success --> Store["Store result as header; enter context"]
 ```
 
-- With a header Validator, `open()` reads and validates the first record before entering the `with` block. The first `row()` reads the second record.
+- With a header Validator, `open()` reads and validates the first record before entering the `with` block. The first `next(csv)` or `row()` reads the second record.
 - On failure, the exception propagates from `open()` and the file is closed. The failed header is not stored. An empty file raises `csvd2c.header.Error` with `value` set to `None`.
 - The Validator's return value becomes the header names. `header()` returns a copy without reading records.
-- Named column Validators (dictionary `column`) locate columns by the stored header. Each name must occur exactly once; otherwise the first `row()` or `rows()` raises `ValueError`.
+- Named column Validators (dictionary `column`) locate columns by the stored header. Each name must occur exactly once; otherwise the first `next(csv)`, `row()`, or `rows()` raises `ValueError`.
 
 Header Patterns and Validators take a list of header names and return a list of names: `__call__(value: List[str]) -> List[str]`, without line numbers or column identifiers. Failures raise `csvd2c.header.Error(message, value)`, a subclass of the common `csvd2c.Error`; `value` is the header passed to the failing Pattern.
 
@@ -341,7 +341,7 @@ The per-Pattern `error=` arguments and callable Error handlers have been removed
 
 Custom Patterns may raise these classes or their subclasses on failure, or return values without raising.
 
-To log failed records and continue, inject Validators directly into CSV, catch only validation errors, and call `row()` again, as in the [rejection sample](../samples/reject_records.py). The same `rows()` generator cannot resume after an exception. Parsing and file decoding failures are not validation errors; positions and source text are not guessed.
+To log failed records and continue, inject Validators directly into CSV, catch only validation errors, and call `next(csv)` again, as in the [rejection sample](../samples/reject_records.py). The failed record is consumed. The same `rows()` generator cannot resume after an exception. Parsing and file decoding failures are not validation errors; positions and source text are not guessed.
 
 ```mermaid
 flowchart LR
@@ -357,20 +357,20 @@ flowchart LR
 
 `CSV.raw() -> Optional[List[str]]` returns the **pre-validation fields** from the most recent data read attempt. Decoding and CSV parsing have completed, but row and column Validators have not yet run on these values. The record is available after successful validation and after `RowError` or `ColumnError`. Error `value` attributes and Pattern signatures are unchanged.
 
-Each call returns a new list, so modifying it does not change the stored record or later results. Modifying a successful `row()` result or changing the input list inside a Pattern does not affect the snapshot either. `raw()` does not read or validate records. An empty record `[]` is distinct from `None`, which means no record is available.
+Each call returns a new list, so modifying it does not change the stored record or later results. Modifying a successful `next(csv)` or `row()` result or changing the input list inside a Pattern does not affect the snapshot either. `raw()` does not read or validate records. An empty record `[]` is distinct from `None`, which means no record is available.
 
 | Event | `raw()` result |
 | --- | --- |
 | Construction or open before reading data | `None` |
-| A data record read by `row()` or `rows()`, whether validation succeeds or fails | A copy of its pre-validation fields |
+| A data record read by `next(csv)`, `row()`, or `rows()`, whether validation succeeds or fails | A copy of its pre-validation fields |
 | The next read reaches EOF or the limit, or fails during parsing or decoding | `None` |
 | `close()`, context exit, or reopening | `None` |
 
 Headers consumed by a header Validator on `open()` and records skipped by offset are not stored. Calling `header()` leaves the current raw record unchanged. Without a header Validator, the first record is ordinary data.
 
-`row()` and `rows()` share the raw record state. Creating a `rows()` generator alone does not change it. Read the snapshot inside the loop for each record. The last record remains available just after it is returned, but normal exhaustion, such as `list(csv.rows())`, clears it when EOF or the limit is checked.
+`next(csv)`, `row()`, and `rows()` share the raw record state. Creating a `rows()` generator alone does not change it. Read the snapshot inside the loop for each record. The last record remains available just after it is returned, but normal exhaustion, such as `list(csv.rows())`, clears it when EOF or the limit is checked.
 
-When `rows()` propagates a validation exception, the failed snapshot remains available, but **the same generator terminates and cannot resume**. Use repeated `row()` calls to continue after failures, as below. Catch validation errors inside the open `with` context; outside it, closing the file has already cleared the snapshot.
+When a record read by `next(csv)`, `row()`, or `rows()` raises a validation exception, the failed snapshot remains available. **The same `rows()` generator terminates and cannot resume**; call `next(csv)` or `row()` again to continue after failures, as below. Catch validation errors inside the open `with` context; outside it, closing the file has already cleared the snapshot.
 
 ### Dump rejected fields as CSV
 
@@ -398,7 +398,7 @@ with TemporaryDirectory() as directory:
     dump = writer(output, delimiter=csv.delimiter, escapechar=csv.escapechar)
     while True:
       try:
-        record = csv.row()
+        record = next(csv)
       except StopIteration:
         break
       except (RowError, ColumnError):

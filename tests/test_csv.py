@@ -480,6 +480,35 @@ class CSVTests(TestCase):
 				csv.row()
 		return
 
+	def test_iterator_shares_position_and_validators(self) -> None:
+		csv = CSV(
+			header=HeaderValidator(),
+			row=RowValidator(Reverse()),
+			limit=2,
+		)
+		with csv.open(str(self.path)):
+			self.assertIs(iter(csv), csv)
+			self.assertEqual(next(csv), [' b ', ' a '])
+			self.assertEqual(csv.row(), ['d', 'c'])
+			self.assertEqual(list(csv.rows()), [])
+			with self.assertRaises(StopIteration):
+				next(csv)
+		return
+
+	def test_iterator_continues_after_validation_error(self) -> None:
+		self.path.write_bytes(b'bad\nok,row\n')
+		csv = CSV(column=(
+			ColumnValidator(),
+			ColumnValidator(),
+		))
+		with csv.open(str(self.path)):
+			with self.assertRaises(RowError):
+				next(csv)
+			self.assertEqual(csv.raw(), ['bad'])
+			self.assertEqual(next(csv), ['ok', 'row'])
+			self.assertEqual(csv.raw(), ['ok', 'row'])
+		return
+
 	def test_open_does_not_consume_header(self) -> None:
 		csv = CSV()
 		with csv.open(str(self.path)):
@@ -600,15 +629,18 @@ class CSVTests(TestCase):
 		with csv.open(str(self.path)):
 			with self.assertRaisesRegex(RuntimeError, 'generator raised StopIteration'):
 				next(csv.rows())
+			with self.assertRaisesRegex(RuntimeError, 'generator raised StopIteration'):
+				next(csv)
 		return
 
 	def test_empty_file(self) -> None:
 		self.path.write_bytes(b'')
 		csv = CSV()
 		with csv.open(str(self.path)):
-			self.assertEqual(list(csv.rows()), [])
+			self.assertEqual(list(csv), [])
 			with self.assertRaises(StopIteration):
-				csv.row()
+				next(csv)
+			self.assertEqual(list(csv.rows()), [])
 		return
 
 	def test_tsv_quotes_and_embedded_newline(self) -> None:
@@ -668,17 +700,22 @@ class CSVTests(TestCase):
 		):
 			with self.assertRaises(RuntimeError):
 				read()
+		with self.assertRaises(RuntimeError):
+			next(csv)
 		return
 
 	def test_nested_open_rejected_and_reopen_allowed(self) -> None:
 		csv = CSV()
+		iterator = iter(csv)
 		with csv.open(str(self.path)):
 			with self.assertRaises(RuntimeError):
 				with csv.open(str(self.path)):
 					self.fail('Nested open must fail')
-			self.assertEqual(csv.row(), ['name', 'note'])
+			self.assertEqual(next(iterator), ['name', 'note'])
+		with self.assertRaises(RuntimeError):
+			next(iterator)
 		with csv.open(str(self.path)):
-			self.assertEqual(csv.row(), ['name', 'note'])
+			self.assertEqual(next(iterator), ['name', 'note'])
 		return
 
 	def test_context_closes_file_on_exception(self) -> None:
@@ -708,6 +745,8 @@ class CSVTests(TestCase):
 				csv.close()
 				with self.assertRaises(RuntimeError):
 					csv.row()
+				with self.assertRaises(RuntimeError):
+					next(csv)
 				with self.assertRaises(RuntimeError):
 					next(rows)
 		with csv.open(str(self.path)):

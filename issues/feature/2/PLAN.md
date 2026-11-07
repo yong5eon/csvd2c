@@ -5,7 +5,8 @@
 [요구사항 R1~R4](./REQUIREMENTS.md)에 따라 `CSV`를 반복자로 사용할 수 있게 하되 기존 `row()`·`rows()` 동작을 유지한다. 원격 작업 브랜치와 저장소 정보는 [작업 메타데이터](./README.md)를 따른다.
 
 - 완료: 이슈·코드·테스트·문서 조사, 요구사항 및 검증 기준 확정
-- 진행 예정: 메소드 구현, 테스트·예제·문서 갱신, 검증
+- 완료: 메소드 구현, 테스트·예제·문서 갱신, 관련 테스트 및 샘플 검증
+- 최종 검토 예정: 변경 범위·문서 링크, 비밀정보 검사, CodeQL
 
 ## 변경 대상과 순서
 
@@ -30,7 +31,7 @@
 
 ### 3. 검증 및 정리
 
-저장소 루트에서 `PYTHONPATH=src python -m unittest discover -s tests -p "test_csv.py" -v`와 `PYTHONPATH=src python -m unittest discover -s tests -p "test_samples.py" -v`를 실행한다. 기존 테스트와 새 테스트가 통과하면 전체 테스트는 확인된 추가 위험이 있을 때만 수행한다. `git diff --check`, 문서 링크·예제와 변경 파일 범위를 검토한다.
+임시 import 경로가 작업 트리의 `src`를 가리키도록 구성한 뒤 `python -m unittest discover -s tests -p "test_csv.py" -v`를 실행한다. 수정한 `samples/reject_records.py`는 같은 import 경로로 직접 실행한다. `test_samples.py`는 격리 subprocess에서 설치된 패키지를 요구하므로 실행하지 않고 변경 샘플을 직접 확인한다. `git diff --check`, 문서 링크·예제와 변경 파일 범위를 검토한다.
 
 ## 범위 밖
 

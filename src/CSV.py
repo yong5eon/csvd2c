@@ -229,6 +229,22 @@ class CSV(object):
 			return None
 		return self.raw_data.copy()
 
+	def __iter__(self) -> 'CSV':
+		"""
+		Return this CSV instance as its iterator.
+		"""
+		return self
+
+	def __next__(self) -> List[str]:
+		"""
+		Return the next validated record, raising StopIteration at EOF or the read limit.
+
+		Use inside an open context. Validation failures propagate after the
+		record has been consumed; decoding and parsing errors also propagate.
+		A Validator-raised StopIteration becomes RuntimeError.
+		"""
+		return next(self.rows())
+
 	def row(
 		self,
 		*,

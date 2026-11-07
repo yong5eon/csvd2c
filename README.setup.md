@@ -51,7 +51,7 @@ csv = CSV(
 
 with csv.open("input.csv"):
   print(csv.header())
-  for record in csv.rows():
+  for record in csv:
     print(record)
 ```
 
@@ -62,7 +62,7 @@ Expected output:
 ['Example', '2026-01-10']
 ```
 
-The header Validator makes `open()` read and validate the first record as the header; `header()` returns it and `rows()` streams the remainder as lists. Named validation requires exactly one matching header column. Dates remain strings unless a Date Pattern is configured. For TSV, use `CSV(delimiter="\t")`.
+The header Validator makes `open()` read and validate the first record as the header; `header()` returns it and the loop streams the remainder as lists. Use `next(csv)` to request one record at a time. Named validation requires exactly one matching header column. Dates remain strings unless a Date Pattern is configured. For TSV, use `CSV(delimiter="\t")`.
 
 ## Constraints
 

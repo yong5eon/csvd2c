@@ -62,7 +62,7 @@ def main() -> None:
 			assert csv.header() == list(HEADER)
 			while True:
 				try:
-					result: Dict[str, str] = dict(zip(HEADER, csv.row()))
+					result: Dict[str, str] = dict(zip(HEADER, next(csv)))
 				except StopIteration:
 					break
 				except (RowError, ColumnError) as error:
