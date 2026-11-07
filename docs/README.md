@@ -22,6 +22,7 @@ flowchart LR
 ## 목차
 
 - [사용 규칙](#사용-규칙): 인코딩 후보 검사, 읽기 모드, 반환 형태와 수명
+- [필드 크기 제한](#필드-크기-제한): 생성자 설정, 최대값 상수와 전역 영향
 - [읽기 범위](#읽기-범위): `offset`·`limit`으로 읽을 레코드 구간 지정
 - [헤더 검증](#헤더-검증): 헤더 Validator 주입, 제공 Pattern, 이름 변경과 마이그레이션
 - [행 구조 Pattern](#행-구조-pattern): 컬럼 재배치·병합·분리와 오류 처리
@@ -61,6 +62,57 @@ with CSV(
 - 디코딩·파싱·검증 오류는 전파하며, 읽은 레코드를 자동으로 재처리하거나 오류 이후 복구하지 않습니다.
 - `surrogateescape`는 해석할 수 없는 바이트를 보존할 뿐 복구하지 않습니다. 해당 값을 검사 없이 DB 등에 전달하지 마세요. 이미 저장된 `�`는 별도로 검증해야 합니다.
 - 파일 전체를 적재하지 않지만, 비정상적으로 큰 레코드는 메모리 사용량에 영향을 줍니다. CSV 파서의 필드 크기 제한을 무작정 늘리지 마세요.
+
+## 필드 크기 제한
+
+`CSV(field_size_limit=None)`은 현재 Python 표준 CSV 파서의 제한을 변경하지 않습니다. `None`은 무제한이나 초기값 복원이 아닙니다. 기본 제한은 보통 `131072`문자이며, 다른 코드가 변경한 값도 그대로 사용합니다.
+
+값을 지정하면 생성자가 검증을 마친 뒤 `csv.field_size_limit()`을 설정합니다. 허용 범위는 `0` 이상 `MAX_FIELD_SIZE` 이하의 정수입니다.
+
+- `from csvd2c import MAX_FIELD_SIZE`로 가져오는 최대값 상수는 `2_147_483_647`입니다. 런타임별 최대값을 자동 계산하지 않습니다.
+- 음수나 최대값 초과는 생성 시 `ValueError`, `bool`·문자열·실수 등 잘못된 타입은 `TypeError`입니다. 잘못된 생성자 입력은 전역 제한을 변경하지 않습니다.
+- 제한은 바이트가 아닌 필드의 문자 수입니다. 한글 등 다중 바이트 문자에도 같은 기준을 적용합니다.
+- 길이가 제한과 같은 필드는 읽을 수 있고, 넘으면 표준 `csv.Error`가 전파됩니다. 헤더·offset으로 건너뛰는 레코드·데이터에 모두 적용됩니다.
+- `0`은 빈 필드만 허용합니다. 빈 레코드와 빈 문자열 필드는 서로 다릅니다.
+
+다음 예제는 작은 제한을 지정하여 경계의 필드는 읽고 초과 필드는 거부합니다. 임시 파일과 이전 전역 설정은 예제가 직접 정리·복원합니다.
+
+```python
+from csv import Error, field_size_limit
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from csvd2c import CSV, MAX_FIELD_SIZE
+
+previous = field_size_limit()
+try:
+  with TemporaryDirectory() as directory:
+    path = Path(directory) / "input.csv"
+    path.write_text("abc\nabcd\n", encoding="utf-8")
+    with CSV(field_size_limit=3).open(str(path)) as data:
+      print(data.row())
+      try:
+        data.row()
+      except Error:
+        print("필드 제한 초과")
+  CSV(field_size_limit=MAX_FIELD_SIZE)
+  print(field_size_limit() == MAX_FIELD_SIZE)
+finally:
+  field_size_limit(previous)
+```
+
+기대 출력:
+
+```text
+['abc']
+필드 제한 초과
+True
+```
+
+설정은 인스턴스 전용이 아니라 같은 인터프리터의 모든 표준 CSV reader가 공유합니다. 이미 생성된 reader와 열린 다른 `CSV`도 이후 변경된 제한을 사용합니다. 마지막 설정이 적용되며, 외부 코드가 값을 바꿔도 각 인스턴스가 생성자 값을 다시 강제하지 않습니다. `open()`·`close()`·정상 또는 예외 컨텍스트 종료는 제한을 복원하지 않습니다.
+
+위 `try/finally`는 호출자의 임시 설정 사용 예시이지, 서로 다른 reader의 동시 읽기에서 독립 제한을 보장하는 방법이 아닙니다.
+
+최대값 설정은 그 크기만큼의 메모리를 즉시 할당하지 않지만, 실제 필드 길이에 따라 파서 버퍼가 커집니다. 최대값은 메모리 안전이나 약 21억 문자 처리 가능성을 보장하지 않습니다. 예상 필드 길이에 맞는 제한을 지정하고, 특히 잘못 닫힌 인용 필드나 신뢰할 수 없는 큰 입력에 주의하세요.
 
 ## 읽기 범위
 

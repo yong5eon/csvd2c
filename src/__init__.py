@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 
 from codecs import getincrementaldecoder
-from .CSV import CSV
+from .CSV import (
+	CSV,
+	MAX_FIELD_SIZE,
+)
 from .Error import Error
 
 __all__ = (
 	'detect_encoding',
 	'CSV',
+	'MAX_FIELD_SIZE',
 	'Error',
 )
 
