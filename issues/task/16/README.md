@@ -8,7 +8,7 @@
 - 작업 브랜치: `task/16`
 - 병합 대상 및 분기 기준: `master`
 - 공통 지침 원본: `yong5eon/Instructions`, 커밋 `8706862712c800682f38af3c86e74f768345d811`
-- 진행 상태: 단계별 기록 보존 원칙 명확화 완료, 실제 GitHub Actions·에이전트 세션 검증 미완료
+- 진행 상태: 이슈 브랜치 자동 생성 PR의 Draft 적용 및 로컬 검증 완료, 실제 GitHub Actions·에이전트 세션 검증 미완료
 
 ## 이슈 원문
 
@@ -46,4 +46,4 @@ GitHub에서 할당된 에이전트는 이슈가 속한 저장소를 작업 대�
 - 단계별 기록: [context/](./context/), [implements/](./implements/), [tasks/](./tasks/)
 - 초기 구현 기록: [context/1793888309066.md](./context/1793888309066.md), [implements/1793888309066.md](./implements/1793888309066.md), [tasks/1793888309066.md](./tasks/1793888309066.md)
 - 잘못 분류했던 후속 작업의 보존 문서: [docs/1794053498287/README.md](./docs/1794053498287/README.md)
-- 최신 기록: [context/1794058502204.md](./context/1794058502204.md), [implements/1794058215604.md](./implements/1794058215604.md), [tasks/1794058502204.md](./tasks/1794058502204.md)
+- 최신 기록: [context/1794058913177.md](./context/1794058913177.md), [implements/1794058913177.md](./implements/1794058913177.md), [tasks/1794058913177.md](./tasks/1794058913177.md)
