@@ -167,7 +167,7 @@ export function buildPullRequest({ template, documents, issue, issueDirectory, o
         body += `\n\n${section.heading}\n\n${section.content}`;
       }
     }
-    return `${body.trim()}\n\nCloses #${issueNumber}`;
+    return `${body.trim()}\n\n- Closes #${issueNumber}\n- Changes: ${issueDirectory}/CHANGELOG.md`;
   };
   let body = render(true);
   if (body.length > MAX_PR_BODY_LENGTH) {
@@ -458,6 +458,9 @@ export async function createPullRequest({
   const documents = {};
   for (const fileName of ISSUE_DOCUMENTS) {
     documents[fileName] = await readOptionalFile(join(rootDirectory, issueDirectory, fileName));
+  }
+  if (!documents['CHANGELOG.md'].trim()) {
+    throw new Error(`Changelog is missing or empty: ${issueDirectory}/CHANGELOG.md`);
   }
   const pullRequest = buildPullRequest({
     template,
