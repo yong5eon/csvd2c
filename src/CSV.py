@@ -11,12 +11,17 @@ from csv import (
 from io import TextIOWrapper
 from typing import (
 	Dict,
+	Generic,
 	Generator,
 	List,
+	Mapping,
 	Optional,
 	Tuple,
+	TypeVar,
 	Union,
 	TYPE_CHECKING,
+	cast,
+	overload,
 )
 
 if TYPE_CHECKING:
@@ -39,11 +44,65 @@ __all__ = (
 
 MAX_FIELD_SIZE: int = 2_147_483_647
 
+RecordType = TypeVar(
+	'RecordType',
+	List[str],
+	Mapping[str, str],
+)
 
-class CSV(object):
+
+class CSV(Generic[RecordType]):
 	"""
 	Read CSV records incrementally and apply row and column validators.
 	"""
+
+	@overload
+	def __init__(
+		self: 'CSV[List[str]]',
+		*,
+		encoding: str = 'utf-8',
+		errors: str = 'strict',
+		newline: str = '',
+		delimiter: str = ',',
+		escapechar: Optional[str] = None,
+		strict: bool = True,
+		header: None = None,
+		row: Optional[RowValidator] = None,
+		column: Optional[
+			Union[
+				Dict[str, ColumnValidator],
+				Tuple[ColumnValidator, ...],
+			]
+		] = None,
+		offset: int = 0,
+		limit: Optional[int] = None,
+		field_size_limit: Optional[int] = None,
+	) -> None:
+		...
+
+	@overload
+	def __init__(
+		self: 'CSV[Mapping[str, str]]',
+		*,
+		encoding: str = 'utf-8',
+		errors: str = 'strict',
+		newline: str = '',
+		delimiter: str = ',',
+		escapechar: Optional[str] = None,
+		strict: bool = True,
+		header: HeaderValidator,
+		row: Optional[RowValidator] = None,
+		column: Optional[
+			Union[
+				Dict[str, ColumnValidator],
+				Tuple[ColumnValidator, ...],
+			]
+		] = None,
+		offset: int = 0,
+		limit: Optional[int] = None,
+		field_size_limit: Optional[int] = None,
+	) -> None:
+		...
 
 	def __init__(
 		self,
@@ -97,6 +156,7 @@ class CSV(object):
 		self.reader: Optional['Reader'] = None
 		self.text: Optional[TextIOWrapper] = None
 		self.header_data: Optional[List[str]] = None
+		self.mapping_header: Optional[Tuple[str, ...]] = None
 		self.raw_data: Optional[List[str]] = None
 		self.skip: int = 0
 		self.remaining: Optional[int] = None
@@ -108,6 +168,39 @@ class CSV(object):
 			csv_field_size_limit(field_size_limit)
 		return
 
+	@overload
+	def open(
+		self: 'CSV[List[str]]',
+		path: str,
+		mode: str = 'rb',
+		header: HeaderValidator = ...,
+		offset: Optional[int] = None,
+		limit: Optional[int] = None,
+	) -> Generator['CSV[Mapping[str, str]]', None, None]:
+		...
+
+	@overload
+	def open(
+		self: 'CSV[List[str]]',
+		path: str,
+		mode: str = 'rb',
+		header: None = None,
+		offset: Optional[int] = None,
+		limit: Optional[int] = None,
+	) -> Generator['CSV[List[str]]', None, None]:
+		...
+
+	@overload
+	def open(
+		self: 'CSV[Mapping[str, str]]',
+		path: str,
+		mode: str = 'rb',
+		header: Optional[HeaderValidator] = None,
+		offset: Optional[int] = None,
+		limit: Optional[int] = None,
+	) -> Generator['CSV[Mapping[str, str]]', None, None]:
+		...
+
 	@contextmanager
 	def open(
 		self,
@@ -116,7 +209,7 @@ class CSV(object):
 		header: Optional[HeaderValidator] = None,
 		offset: Optional[int] = None,
 		limit: Optional[int] = None,
-	) -> Generator['CSV', None, None]:
+	) -> Generator['CSV[RecordType]', None, None]:
 		"""
 		Open a file for reading and close it on context exit.
 
@@ -171,6 +264,7 @@ class CSV(object):
 				strict=self.strict,
 			)
 			self.header_data = None
+			self.mapping_header = None
 			self.raw_data = None
 			self.skip = skip
 			self.remaining = remaining
@@ -178,6 +272,7 @@ class CSV(object):
 			try:
 				if validator is not None:
 					self.header_data = self.read_header(self.reader, validator)
+					self.mapping_header = self.resolve_mapping_header(self.header_data)
 				yield self
 			finally:
 				if self.text is text:
@@ -199,6 +294,7 @@ class CSV(object):
 			self.text = None
 			self.reader = None
 			self.header_data = None
+			self.mapping_header = None
 			self.raw_data = None
 			self.skip = 0
 			self.remaining = None
@@ -229,13 +325,13 @@ class CSV(object):
 			return None
 		return self.raw_data.copy()
 
-	def __iter__(self) -> 'CSV':
+	def __iter__(self) -> 'CSV[RecordType]':
 		"""
 		Return this CSV instance as its iterator.
 		"""
 		return self
 
-	def __next__(self) -> List[str]:
+	def __next__(self) -> RecordType:
 		"""
 		Return the next validated record, raising StopIteration at EOF or the read limit.
 
@@ -244,6 +340,34 @@ class CSV(object):
 		A Validator-raised StopIteration becomes RuntimeError.
 		"""
 		return next(self.rows())
+
+	@overload
+	def row(
+		self: 'CSV[List[str]]',
+		*,
+		row: Optional[RowValidator] = None,
+		column: Optional[
+			Union[
+				Dict[str, ColumnValidator],
+				Tuple[ColumnValidator, ...],
+			]
+		] = None,
+	) -> List[str]:
+		...
+
+	@overload
+	def row(
+		self: 'CSV[Mapping[str, str]]',
+		*,
+		row: Optional[RowValidator] = None,
+		column: Optional[
+			Union[
+				Dict[str, ColumnValidator],
+				Tuple[ColumnValidator, ...],
+			]
+		] = None,
+	) -> Mapping[str, str]:
+		...
 
 	def row(
 		self,
@@ -255,7 +379,7 @@ class CSV(object):
 				Tuple[ColumnValidator, ...],
 			]
 		] = None,
-	) -> List[str]:
+	) -> RecordType:
 		"""
 		Consume and validate one record, raising StopIteration at EOF.
 
@@ -269,7 +393,36 @@ class CSV(object):
 		indices: List[Tuple[int, Union[int, str], ColumnValidator]] = self.column_indices(column_validators)
 		record: List[str] = self.read_record(source)
 		line: int = source.line_num
-		return self.validate(record, line, row_validator, indices)
+		record = self.validate(record, line, row_validator, indices)
+		return self.return_record(record, line)
+
+	@overload
+	def rows(
+		self: 'CSV[List[str]]',
+		*,
+		row: Optional[RowValidator] = None,
+		column: Optional[
+			Union[
+				Dict[str, ColumnValidator],
+				Tuple[ColumnValidator, ...],
+			]
+		] = None,
+	) -> Generator[List[str], None, None]:
+		...
+
+	@overload
+	def rows(
+		self: 'CSV[Mapping[str, str]]',
+		*,
+		row: Optional[RowValidator] = None,
+		column: Optional[
+			Union[
+				Dict[str, ColumnValidator],
+				Tuple[ColumnValidator, ...],
+			]
+		] = None,
+	) -> Generator[Mapping[str, str], None, None]:
+		...
 
 	def rows(
 		self,
@@ -281,7 +434,7 @@ class CSV(object):
 				Tuple[ColumnValidator, ...],
 			]
 		] = None,
-	) -> Generator[List[str], None, None]:
+	) -> Generator[RecordType, None, None]:
 		"""
 		Stream remaining records without accumulating results in memory.
 
@@ -310,6 +463,19 @@ class CSV(object):
 		except StopIteration:
 			raise HeaderError('The file has no record to use as a header', None) from None
 		return list(validator(record))
+
+	def resolve_mapping_header(
+		self,
+		header: List[str],
+	) -> Tuple[str, ...]:
+		if '' in header:
+			raise HeaderError('Header names cannot be empty when row() and rows() return mappings', header)
+		unique: set[str] = set()
+		for name in header:
+			if name in unique:
+				raise HeaderError('Header names must be unique when row() and rows() return mappings', header)
+			unique.add(name)
+		return tuple(header)
 
 	def read_record(
 		self,
@@ -483,12 +649,37 @@ class CSV(object):
 			record[index] = validator(record[index], line, column)
 		return record
 
+	def return_record(
+		self,
+		record: List[str],
+		line: int,
+	) -> RecordType:
+		header: Optional[Tuple[str, ...]] = self.mapping_header
+		if header is None:
+			return cast(RecordType, record)
+		if len(record) != len(header):
+			raise RowError(
+				'Record has {} columns after validation but header has {}'.format(
+					len(record),
+					len(header),
+				),
+				line,
+				record,
+			)
+		return cast(
+			RecordType,
+			{
+				name: value
+				for name, value in zip(header, record)
+			},
+		)
+
 	def iterate(
 		self,
 		source: 'Reader',
 		row: Optional[RowValidator],
 		indices: List[Tuple[int, Union[int, str], ColumnValidator]],
-	) -> Generator[List[str], None, None]:
+	) -> Generator[RecordType, None, None]:
 		while True:
 			if self.reader is not source:
 				raise RuntimeError('The CSV context has changed')
@@ -497,4 +688,5 @@ class CSV(object):
 				line: int = source.line_num
 			except StopIteration:
 				return
-			yield self.validate(record, line, row, indices)
+			record = self.validate(record, line, row, indices)
+			yield self.return_record(record, line)

@@ -208,7 +208,7 @@ class RawTests(TestCase):
 		with csv.open(str(self.path)):
 			self.assertEqual(csv.header(), ['NAME'])
 			self.assertIsNone(csv.raw())
-			self.assertEqual(csv.row(), ['value'])
+			self.assertEqual(csv.row(), {'NAME': 'value'})
 			self.assertEqual(csv.raw(), ['value'])
 			self.assertEqual(csv.header(), ['NAME'])
 			self.assertEqual(csv.header(), ['NAME'])

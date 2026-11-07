@@ -32,7 +32,7 @@ python -m unittest discover -s tests -p "test_samples.py" -v
 | 파일 | 참고할 내용 |
 | --- | --- |
 | [read_basic.py](./read_basic.py) | 헤더 Validator 주입, `header()`, `row()`, `rows()`, EOF, 날짜처럼 보이는 원문 유지 |
-| [read_dictionary.py](./read_dictionary.py) | 검증된 `header()`와 list 레코드를 `dict(zip(...))`로 묶기, 다른 키 이름 사용 |
+| [read_dictionary.py](./read_dictionary.py) | 헤더 Validator 사용 시 `row()`·`rows()`의 Mapping 반환 사용, 다른 키 이름으로 재매핑 |
 | [header_validation.py](./header_validation.py) | `open()` 시 헤더 검증, `Length`·`RejectEmpty`·`RejectDuplicate`·`ExactOrder` 조합, 헤더 `Error` 처리, 이름을 바꾸는 사용자 정의 헤더 Pattern과 이름 기반 컬럼 검증 |
 | [read_tsv_multiline.py](./read_tsv_multiline.py) | TSV, 인용된 탭, 필드 안 개행, UTF-8 BOM, `rb`/`r`/`rt` |
 | [detect_encoding.py](./detect_encoding.py) | 후보 순서, cp949 파일, ASCII의 모호함, 후보 누락 오류 |

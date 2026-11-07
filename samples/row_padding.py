@@ -2,7 +2,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import (
 	Iterator,
-	Optional,
 )
 from csvd2c import CSV
 from csvd2c.header import Validator as HeaderValidator
@@ -40,10 +39,8 @@ def main() -> None:
 			},
 		))
 		with csv.open(str(path)):
-			header: Optional[list[str]] = csv.header()
-			assert header is not None
 			for values in csv.rows():
-				record: dict[str, str] = dict(zip(header, values))
+				record: dict[str, str] = dict(values)
 				assert record == next(expected)
 				print(record)
 		assert Pad(3, 'missing')(['a'], 1) == [

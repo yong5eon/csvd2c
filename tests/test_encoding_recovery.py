@@ -131,15 +131,21 @@ class EncodingRecoveryTests(TestCase):
 			)
 			with csv.open(str(path)):
 				self.assertEqual(csv.header(), ['id', 'description'])
-				result: List[List[str]] = list(csv.rows())
+				result: List[dict[str, str]] = list(csv.rows())
 			self.assertEqual(
 				result,
 				[
-					['1', 'Công ty'],
-					['2', 'Công ty'],
+					{
+						'id': '1',
+						'description': 'Công ty',
+					},
+					{
+						'id': '2',
+						'description': 'Công ty',
+					},
 				],
 			)
-			self.assertEqual(result[0][1].encode('utf-8'), 'Công ty'.encode('utf-8'))
+			self.assertEqual(result[0]['description'].encode('utf-8'), 'Công ty'.encode('utf-8'))
 		return
 
 

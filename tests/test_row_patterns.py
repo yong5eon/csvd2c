@@ -222,10 +222,8 @@ class RowPatternTests(TestCase):
 				row=Validator(Truncate(2), Pad(2), Length(2)),
 			)
 			with csv.open(str(path)):
-				header: Optional[List[str]] = csv.header()
-				assert header is not None
 				self.assertEqual(
-					[dict(zip(header, record)) for record in csv.rows()],
+					list(csv.rows()),
 					[
 						{'name': 'Kim', 'date': '1-10'},
 						{'name': 'Lee', 'date': ''},
@@ -257,10 +255,8 @@ class RowPatternTests(TestCase):
 				row=Validator(Remove(1), Length(2)),
 			)
 			with csv.open(str(path)):
-				header: Optional[List[str]] = csv.header()
-				assert header is not None
 				self.assertEqual(
-					dict(zip(header, csv.row())),
+					csv.row(),
 					{'name': 'Kim', 'date': '1-10'},
 				)
 		return

@@ -190,7 +190,10 @@ class ErrorContextTests(TestCase):
 				self.assertEqual(context.exception.value, '')
 				self.assertEqual(context.exception.row, 3)
 				self.assertEqual(context.exception.column, 'name')
-				self.assertEqual(csv.row(), ['ok', 'next'])
+				self.assertEqual(csv.row(), {
+					'name': 'ok',
+					'note': 'next',
+				})
 		return
 
 	def test_numeric_column_and_rows_overrides(self) -> None:

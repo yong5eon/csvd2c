@@ -66,8 +66,8 @@ Expected output:
 
 ```text
 ['name', 'date']
-['Example', '2026-01-10']
-['Sample', '2026-02-23']
+{'name': 'Example', 'date': '2026-01-10'}
+{'name': 'Sample', 'date': '2026-02-23'}
 ```
 
 Because a header Validator is injected, `open()` reads the first record as the header and checks the `name,date` order. `header()` returns the validated header and the loop reads the remaining records. You can also read one record at a time with `next(csv)`. The named `name` column must appear exactly once in the header. Dates remain original strings because no Date Pattern is configured. For TSV, use `CSV(delimiter="\t")`.
@@ -77,7 +77,7 @@ Because a header Validator is injected, `open()` reads the first record as the h
 - With a header Validator in `header=`, `open()` reads and validates the first record as the header. Failure raises `csvd2c.header.Error` and closes the file. Without one, `open()` reads no record.
 - `header()` reads no record and returns a copy of the validated header, or `None` without header validation.
 - `raw()` returns a copy of the last data record's pre-validation fields. It returns `None` initially, after a read produces no record, and after closing. See [raw record access](./docs/README.en.md#raw-record-access) for update rules and a dump example.
-- `next(csv)` and `row()` return the next record; `rows()` streams the remainder, all as lists. All three share the read position and constructor Validators. Without a header Validator, the first result of a file with a header is the header record.
+- `next(csv)`, `row()`, and `rows()` share the read position and constructor Validators. When a header Validator is active, they return `Mapping[str, str]` records keyed by validated header names. Without a header Validator, they return `list[str]` records as before. Without a header Validator, the first result of a file with a header is the header record.
 - Row validation runs before column validation. Dictionary `column` uses names from the validated header; tuple `column` applies to the specified leading columns.
 - Method-level `row=` and `column=` override settings for that call; `open()`'s `header=` applies only to that file. Omitted arguments or `None` retain constructor settings.
 - `next(csv)` and `row()` raise `StopIteration` at EOF; `rows()` and a `for` loop end normally.
@@ -92,16 +92,15 @@ Constructor `field_size_limit=None` preserves the current standard CSV field lim
 
 CSV defaults to `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, and `strict=True`. `open(path, mode="rb", header=None, offset=None, limit=None)` accepts only `rb`, `r`, and `rt`. Binary mode decodes through TextIOWrapper; text modes use the same encoding, errors, and newline settings. Write, append, and update modes are rejected before opening.
 
-`next(csv)`, `row()`, and `rows()` always return list records. Combine them with the validated header when you need dictionaries.
+With a header Validator, `next(csv)`, `row()`, and `rows()` return `Mapping[str, str]` records. Without a header Validator, all three return `list[str]` records.
 
 ```python
 from csvd2c import CSV
 from csvd2c.header import Validator as HeaderValidator
 
 with CSV(header=HeaderValidator()).open("input.csv") as csv:
-  header = csv.header() or []
   for record in csv.rows():
-    print(dict(zip(header, record)))
+    print(record["name"], record["date"])
 ```
 
 Missing or duplicate selected `column` names are errors. Tuple settings validate only the specified leading columns. Pass method-level `column={}` or `column=()` to disable constructor column settings.

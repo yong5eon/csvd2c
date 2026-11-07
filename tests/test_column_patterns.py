@@ -306,7 +306,11 @@ class ColumnPatternTests(TestCase):
 				self.assertEqual(csv.header(), ['name', 'date', 'amount'])
 				self.assertEqual(
 					list(csv.rows()),
-					[['ALICE', '2024-02-29', '1234.5']],
+					[{
+						'name': 'ALICE',
+						'date': '2024-02-29',
+						'amount': '1234.5',
+					}],
 				)
 		return
 
