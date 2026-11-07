@@ -8,7 +8,11 @@
 - 작업 브랜치: `task/16`
 - 병합 대상 및 분기 기준: `master`
 - 공통 지침 원본: `yong5eon/Instructions`, 커밋 `8706862712c800682f38af3c86e74f768345d811`
-- 진행 상태: 원격 에이전트 브랜치의 PR 문서 연동 로컬 구현·검증 완료. 실제 Actions 실행은 미확인. 이슈 #16은 종료 상태이며 재개는 사용자가 지정했다.
+- 진행 상태: PR 리뷰 후속 수정 및 로컬 검증 완료. 이번 수정의 실제 Actions 실행은 미확인. 이슈 #16은 종료 상태이며 재개는 사용자가 지정했다.
+
+## 후속 요청
+
+사용자가 DefPixel·DefChord·DefStream에 적용한 PR 리뷰 후속 수정 두 가지를 이 브랜치에도 적용하도록 요청했다.
 
 ## 이슈 원문
 
@@ -47,4 +51,4 @@ GitHub에서 할당된 에이전트는 이슈가 속한 저장소를 작업 대�
 - 단계별 기록: [context/](./context/), [implements/](./implements/), [tasks/](./tasks/)
 - 초기 구현 기록: [context/1793888309066.md](./context/1793888309066.md), [implements/1793888309066.md](./implements/1793888309066.md), [tasks/1793888309066.md](./tasks/1793888309066.md)
 - 잘못 분류했던 후속 작업의 보존 문서: [docs/1794053498287/README.md](./docs/1794053498287/README.md)
-- 최신 기록: [context/1794067341563.md](./context/1794067341563.md), [implements/1794067341563.md](./implements/1794067341563.md), [tasks/1794067341563.md](./tasks/1794067341563.md)
+- 최신 기록: [context/1794084824525.md](./context/1794084824525.md), [implements/1794084824525.md](./implements/1794084824525.md), [tasks/1794084824525.md](./tasks/1794084824525.md)
