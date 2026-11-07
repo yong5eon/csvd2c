@@ -8,7 +8,7 @@
 - 작업 브랜치: `task/16`
 - 병합 대상 및 분기 기준: `master`
 - 공통 지침 원본: `yong5eon/Instructions`, 커밋 `8706862712c800682f38af3c86e74f768345d811`
-- 진행 상태: PR 문서 표시와 변경 로그 footer 처리의 로컬 구현·검증 완료, 실제 GitHub Actions·에이전트 세션 검증 미완료
+- 진행 상태: 여러 이슈 종료 구문과 마지막 줄 변경 로그 검사 반영 및 로컬 검증 완료. 실제 GitHub Actions·에이전트 세션 검증 미완료
 
 ## 이슈 원문
 
@@ -43,7 +43,8 @@ GitHub에서 할당된 에이전트는 이슈가 속한 저장소를 작업 대�
 - 구현 종합: [IMPLEMENTS.md](./IMPLEMENTS.md)
 - 작업 종합: [TASKS.md](./TASKS.md)
 - 변경 로그: [CHANGELOG.md](./CHANGELOG.md)
+- PR 제목과 본문: [IR.md](./IR.md)
 - 단계별 기록: [context/](./context/), [implements/](./implements/), [tasks/](./tasks/)
 - 초기 구현 기록: [context/1793888309066.md](./context/1793888309066.md), [implements/1793888309066.md](./implements/1793888309066.md), [tasks/1793888309066.md](./tasks/1793888309066.md)
 - 잘못 분류했던 후속 작업의 보존 문서: [docs/1794053498287/README.md](./docs/1794053498287/README.md)
-- 최신 기록: [context/1794059952074.md](./context/1794059952074.md), [implements/1794059952074.md](./implements/1794059952074.md), [tasks/1794059952074.md](./tasks/1794059952074.md)
+- 최신 기록: [context/1794063457322.md](./context/1794063457322.md), [implements/1794063457322.md](./implements/1794063457322.md), [tasks/1794063457322.md](./tasks/1794063457322.md)
