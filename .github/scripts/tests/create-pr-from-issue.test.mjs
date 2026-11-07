@@ -399,6 +399,96 @@ test('createPullRequest accepts a PR document and changelog without other issue 
   }
 });
 
+test('createPullRequest updates agent PRs using all pages of changed files', async () => {
+  const rootDirectory = await makeIssueDirectory();
+  try {
+    for (const branch of ['copilot/example', 'codex/example']) {
+      const requests = [];
+      const result = await createPullRequest({
+        owner: 'example', repo: 'project', branch, base: 'master',
+        sha: 'abc123', token: 'test-token', rootDirectory,
+        fetchImpl: async (url, options) => {
+          requests.push({ url, options });
+          if (url.includes('/pulls?')) {
+            return jsonResponse([{ number: 8, node_id: pullRequestNodeId, head: { sha: 'abc123' } }]);
+          }
+          if (url.includes('/pulls/8/files?') && url.endsWith('page=1')) {
+            return jsonResponse(Array.from({ length: 100 }, (_, index) => ({
+              filename: `src/file${index}.js`, status: 'modified',
+            })));
+          }
+          if (url.includes('/pulls/8/files?') && url.endsWith('page=2')) {
+            return jsonResponse([
+              { filename: 'issues/task/99/IR.md', status: 'removed' },
+              { filename: 'issues/task/12/IR.md', status: 'added' },
+            ]);
+          }
+          if (url.endsWith('/pulls/8') && options.method === 'PATCH') return jsonResponse({});
+          throw new Error(`Unexpected request: ${url}`);
+        },
+      });
+      assert.deepEqual(result, { status: 'already-open', number: 8 });
+      assert.equal(requests.length, 4);
+      assert.deepEqual(JSON.parse(requests[3].options.body), {
+        title: 'PR 제목',
+        body: `## 변경 내용\n\n간결한 변경 설명\n\n## 검증\n\n테스트 통과\n\n${footer}`,
+      });
+    }
+  } finally {
+    await rm(rootDirectory, { recursive: true, force: true });
+  }
+});
+
+test('createPullRequest rejects missing, ambiguous, or incomplete agent PR file lists', async () => {
+  const rootDirectory = await makeIssueDirectory();
+  try {
+    for (const [files, error] of [
+      [[], /Expected exactly one changed issue IR\.md, found 0/],
+      [[
+        { filename: 'issues/task/12/IR.md', status: 'modified' },
+        { filename: 'issues/feature/13/IR.md', status: 'added' },
+      ], /Expected exactly one changed issue IR\.md, found 2/],
+      [Array.from({ length: 100 }, (_, index) => ({
+        filename: `src/file${index}.js`, status: 'modified',
+      })), /3000-file limit/],
+    ]) {
+      const requests = [];
+      await assert.rejects(createPullRequest({
+        owner: 'example', repo: 'project', branch: 'copilot/example', base: 'master',
+        sha: 'abc123', token: 'test-token', rootDirectory,
+        fetchImpl: async (url, options) => {
+          requests.push({ url, options });
+          if (url.includes('/pulls?')) {
+            return jsonResponse([{ number: 8, node_id: pullRequestNodeId, head: { sha: 'abc123' } }]);
+          }
+          if (url.includes('/pulls/8/files?')) return jsonResponse(files);
+          throw new Error(`Unexpected request: ${url}`);
+        },
+      }), error);
+      assert.equal(requests.some(({ options }) => ['POST', 'PATCH'].includes(options.method)), false);
+    }
+  } finally {
+    await rm(rootDirectory, { recursive: true, force: true });
+  }
+});
+
+test('createPullRequest skips agent pushes without an open PR or with an outdated SHA', async () => {
+  for (const [pulls, status] of [
+    [[], 'no-open-agent-pull-request'],
+    [[{ number: 8, node_id: pullRequestNodeId, head: { sha: 'newer' } }], 'stale-agent-push'],
+  ]) {
+    const result = await createPullRequest({
+      owner: 'example', repo: 'project', branch: 'copilot/example', base: 'master',
+      sha: 'abc123', token: 'test-token',
+      fetchImpl: async (url) => {
+        if (url.includes('/pulls?')) return jsonResponse(pulls);
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    });
+    assert.deepEqual(result, { status });
+  }
+});
+
 test('createPullRequest updates an existing open PR without creating another', async () => {
   const rootDirectory = await makeIssueDirectory();
   const requests = [];
