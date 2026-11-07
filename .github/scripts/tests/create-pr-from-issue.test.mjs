@@ -622,6 +622,7 @@ test('createPullRequest creates a new PR after a merged PR when branch has new c
     const payload = JSON.parse(createRequest.options.body);
     assert.equal(payload.head, 'task/12');
     assert.equal(payload.base, 'master');
+    assert.equal(payload.draft, true);
     assert.equal(payload.title, '작업 기록 제목');
     assert.match(payload.body, /사용자가 새 동작을 이용할 수 있다/);
     assert.equal(requests.length, 9);

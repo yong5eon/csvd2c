@@ -483,6 +483,7 @@ export async function createPullRequest({
         body: pullRequest.body,
         head: branch,
         base,
+        draft: true,
       }),
     },
   );
