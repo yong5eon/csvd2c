@@ -133,7 +133,7 @@ export function buildPullRequest({ template, documents, issue, issueDirectory, o
     for (const [fileName, markdown] of Object.entries(linkedDocuments)) {
       const link = sourceLink(owner, repo, sha, `${issueDirectory}/${fileName}`);
       const record = includeContent
-        ? `<details>\n<summary>${fileName}</summary>\n\n${markdown}\n\n[원문](${link})\n\n</details>`
+        ? `### [${fileName}](${link})\n\n${markdown}`
         : `[${fileName}](${link})`;
       (fileName === 'TASKS.md' ? validation : summary).push(record);
     }
@@ -167,7 +167,7 @@ export function buildPullRequest({ template, documents, issue, issueDirectory, o
         body += `\n\n${section.heading}\n\n${section.content}`;
       }
     }
-    return `${body.trim()}\n\nCloses #${issueNumber}`;
+    return `${body.trim()}\n\n- Closes #${issueNumber}\n- Changes: ${issueDirectory}/CHANGELOG.md`;
   };
   let body = render(true);
   if (body.length > MAX_PR_BODY_LENGTH) {
@@ -378,74 +378,41 @@ export async function createPullRequest({
   if (!Array.isArray(openPullRequests)) {
     throw new Error('GitHub API did not return the open pull request list');
   }
+  const existing = openPullRequests[0];
   if (openPullRequests.length > 0) {
-    if (!Number.isInteger(openPullRequests[0]?.number)) {
+    if (!Number.isInteger(existing?.number)) {
       throw new Error('GitHub API returned an open pull request without a number');
     }
-    if (typeof openPullRequests[0]?.node_id !== 'string' || !openPullRequests[0].node_id) {
+    if (typeof existing.node_id !== 'string' || !existing.node_id) {
       throw new Error('GitHub API did not return a node ID for the open pull request');
     }
-    const { labels, assignees, milestone, nodeId: issueNodeId } = await getIssueMetadata(
-      encodedRepository,
-      issueDirectory,
+  } else {
+    const compare = await githubRequest(
+      `${encodedRepository}/compare/${encodeURIComponent(base)}...${encodeURIComponent(sha)}`,
       token,
       fetchImpl,
     );
-    await addPullRequestLabels(
-      encodedRepository,
-      openPullRequests[0].number,
-      labels,
+    if (!Number.isInteger(compare?.ahead_by) || compare.ahead_by < 0
+      || !Array.isArray(compare.files)) {
+      throw new Error('GitHub API did not return the branch comparison result');
+    }
+    if (compare.ahead_by === 0 || compare.files.length === 0) {
+      return { status: 'no-changes' };
+    }
+    const headCommit = await githubRequest(
+      `${encodedRepository}/git/commits/${encodeURIComponent(sha)}`,
       token,
       fetchImpl,
     );
-    await addPullRequestAssignees(
-      encodedRepository,
-      openPullRequests[0].number,
-      assignees,
-      token,
-      fetchImpl,
-    );
-    await setPullRequestMilestone(
-      encodedRepository,
-      openPullRequests[0].number,
-      milestone,
-      token,
-      fetchImpl,
-    );
-    await linkPullRequestToIssue(
-      issueNodeId,
-      openPullRequests[0].node_id,
-      token,
-      fetchImpl,
-    );
-    return { status: 'already-open', number: openPullRequests[0].number };
-  }
-
-  const compare = await githubRequest(
-    `${encodedRepository}/compare/${encodeURIComponent(base)}...${encodeURIComponent(sha)}`,
-    token,
-    fetchImpl,
-  );
-  if (!Number.isInteger(compare?.ahead_by) || compare.ahead_by < 0
-    || !Array.isArray(compare.files)) {
-    throw new Error('GitHub API did not return the branch comparison result');
-  }
-  if (compare.ahead_by === 0 || compare.files.length === 0) {
-    return { status: 'no-changes' };
-  }
-  const headCommit = await githubRequest(
-    `${encodedRepository}/git/commits/${encodeURIComponent(sha)}`,
-    token,
-    fetchImpl,
-  );
-  const baseTree = compare.base_commit?.commit?.tree?.sha;
-  const headTree = headCommit?.tree?.sha;
-  if (typeof baseTree !== 'string' || !baseTree
-    || typeof headTree !== 'string' || !headTree) {
-    throw new Error('GitHub API did not return the base and head commit tree SHAs');
-  }
-  if (baseTree === headTree) {
-    return { status: 'no-changes' };
+    const baseTree = compare.base_commit?.commit?.tree?.sha;
+    const headTree = headCommit?.tree?.sha;
+    if (typeof baseTree !== 'string' || !baseTree
+      || typeof headTree !== 'string' || !headTree) {
+      throw new Error('GitHub API did not return the base and head commit tree SHAs');
+    }
+    if (baseTree === headTree) {
+      return { status: 'no-changes' };
+    }
   }
 
   const { labels, assignees, milestone, nodeId: issueNodeId, issue } = await getIssueMetadata(
@@ -459,6 +426,9 @@ export async function createPullRequest({
   for (const fileName of ISSUE_DOCUMENTS) {
     documents[fileName] = await readOptionalFile(join(rootDirectory, issueDirectory, fileName));
   }
+  if (!documents['CHANGELOG.md'].trim()) {
+    throw new Error(`Changelog is missing or empty: ${issueDirectory}/CHANGELOG.md`);
+  }
   const pullRequest = buildPullRequest({
     template,
     documents,
@@ -468,6 +438,23 @@ export async function createPullRequest({
     repo,
     sha,
   });
+
+  if (openPullRequests.length > 0) {
+    await githubRequest(
+      `${encodedRepository}/pulls/${existing.number}`,
+      token,
+      fetchImpl,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ title: pullRequest.title, body: pullRequest.body }),
+      },
+    );
+    await addPullRequestLabels(encodedRepository, existing.number, labels, token, fetchImpl);
+    await addPullRequestAssignees(encodedRepository, existing.number, assignees, token, fetchImpl);
+    await setPullRequestMilestone(encodedRepository, existing.number, milestone, token, fetchImpl);
+    await linkPullRequestToIssue(issueNodeId, existing.node_id, token, fetchImpl);
+    return { status: 'already-open', number: existing.number };
+  }
 
   const created = await githubRequest(
     `${encodedRepository}/pulls`,
@@ -480,6 +467,7 @@ export async function createPullRequest({
         body: pullRequest.body,
         head: branch,
         base,
+        draft: true,
       }),
     },
   );
@@ -515,7 +503,7 @@ async function main() {
   if (result.status === 'created') {
     console.log(`Created pull request #${result.number}: ${result.url}`);
   } else if (result.status === 'already-open') {
-    console.log(`Pull request #${result.number} is already open for this branch and base`);
+    console.log(`Updated pull request #${result.number} for this branch and base`);
   } else {
     console.log(`Skipped pull request creation: ${result.status}`);
   }

@@ -92,9 +92,22 @@ test('buildPullRequest fills the repository template only from issue documents',
   assert.match(result.body, /blob\/abc123\/issues\/task\/12\/REQUIREMENTS\.md/);
   assert.match(result.body, /- \[X\] 기타/);
   assert.match(result.body, /- \[ \] 기능 추가/);
-  assert.match(result.body, /Closes #12$/);
+  assert.match(result.body, /- Closes #12\n- Changes: issues\/task\/12\/CHANGELOG\.md$/);
+  assert.doesNotMatch(result.body, /<\/?details\b/i);
   assert.doesNotMatch(result.body, /<!--/);
   assert.doesNotMatch(result.body, /commit message/i);
+});
+
+test('buildPullRequest uses the issue directory in the final changelog path', () => {
+  const result = buildPullRequest({
+    template,
+    documents,
+    issueDirectory: 'issues/feature/34',
+    owner: 'example',
+    repo: 'project',
+    sha: 'abc123',
+  });
+  assert.match(result.body, /- Closes #34\n- Changes: issues\/feature\/34\/CHANGELOG\.md$/);
 });
 
 test('buildPullRequest preserves replacement patterns verbatim in every document', () => {
@@ -242,7 +255,7 @@ for (const scenario of [
       assert.ok(result.body.includes(sourceIssue.body));
     }
     assert.match(result.body, /https:\/\/github.com\/example\/project\/issues\/12/);
-    assert.match(result.body, /Closes #12$/);
+    assert.match(result.body, /- Closes #12\n- Changes: issues\/task\/12\/CHANGELOG\.md$/);
   });
 }
 
@@ -305,10 +318,12 @@ test('buildPullRequest preserves content at the exact body limit and links it ab
   const atLimit = buildPullRequest({ ...options, documents: { 'TASKS.md': content } });
   assert.equal(atLimit.body.length, 65536);
   assert.ok(atLimit.body.includes(content));
+  assert.match(atLimit.body, /- Closes #12\n- Changes: issues\/task\/12\/CHANGELOG\.md$/);
   const aboveLimit = buildPullRequest({ ...options, documents: { 'TASKS.md': `${content}x` } });
   assert.ok(aboveLimit.body.length < 65536);
   assert.ok(!aboveLimit.body.includes(content));
   assert.match(aboveLimit.body, /blob\/abc123\/issues\/task\/12\/TASKS.md/);
+  assert.match(aboveLimit.body, /- Closes #12\n- Changes: issues\/task\/12\/CHANGELOG\.md$/);
 });
 
 test('buildPullRequest links an oversized template while retaining the issue and document links', () => {
@@ -324,7 +339,7 @@ test('buildPullRequest links an oversized template while retaining the issue and
   assert.ok(result.body.length < 65536);
   assert.match(result.body, /blob\/abc123\/\.github\/PULL_REQUEST_TEMPLATE.md/);
   assert.match(result.body, /blob\/abc123\/issues\/task\/12\/TASKS.md/);
-  assert.match(result.body, /Closes #12$/);
+  assert.match(result.body, /- Closes #12\n- Changes: issues\/task\/12\/CHANGELOG\.md$/);
 });
 
 for (const body of [null, 'x'.repeat(70000)]) {
@@ -341,7 +356,7 @@ for (const body of [null, 'x'.repeat(70000)]) {
     assert.equal(result.title, sourceIssue.title);
     assert.ok(result.body.length < 65536);
     assert.match(result.body, /https:\/\/github.com\/example\/project\/issues\/12/);
-    assert.match(result.body, /Closes #12$/);
+    assert.match(result.body, /- Closes #12\n- Changes: issues\/task\/12\/CHANGELOG\.md$/);
   });
 }
 
@@ -377,26 +392,22 @@ for (const file of ['TASKS.md', 'PULL_REQUEST_TEMPLATE.md']) {
   });
 }
 
-for (const scenario of [
-  { name: 'missing documents and template', remove: true },
-  { name: 'empty documents', remove: false },
-]) {
-  test(`createPullRequest creates a PR from the source issue with ${scenario.name}`, async () => {
+for (const content of [null, '', ' \n\t']) {
+  test(`createPullRequest rejects a ${content === null ? 'missing' : 'empty'} changelog before creating a PR`, async () => {
     const rootDirectory = await makeIssueDirectory();
-    let payload;
+    const requests = [];
     try {
-      if (scenario.remove) {
-        await rm(join(rootDirectory, 'issues', 'task', '12'), { recursive: true });
-        await rm(join(rootDirectory, '.github', 'PULL_REQUEST_TEMPLATE.md'));
+      const changelog = join(rootDirectory, 'issues', 'task', '12', 'CHANGELOG.md');
+      if (content === null) {
+        await rm(changelog);
       } else {
-        for (const fileName of Object.keys(documents)) {
-          await writeFile(join(rootDirectory, 'issues', 'task', '12', fileName), '');
-        }
+        await writeFile(changelog, content);
       }
-      const result = await createPullRequest({
+      await assert.rejects(createPullRequest({
         owner: 'example', repo: 'project', branch: 'task/12', base: 'master',
         sha: 'abc123', token: 'test-token', rootDirectory,
         fetchImpl: async (url, options) => {
+          requests.push({ url, options });
           if (url.includes('/pulls?')) return jsonResponse([]);
           if (url.includes('/compare/')) return comparisonResponse(1);
           if (url.endsWith('/git/commits/abc123')) {
@@ -407,31 +418,65 @@ for (const scenario of [
               ...sourceIssue, labels: [], assignees: [], milestone: null, node_id: issueNodeId,
             });
           }
-          if (url.endsWith('/pulls')) {
-            payload = JSON.parse(options.body);
-            return jsonResponse({
-              number: 15, node_id: pullRequestNodeId,
-              html_url: 'https://github.com/example/project/pull/15',
-            }, 201);
-          }
-          if (url.endsWith('/graphql')) return graphqlLinkResponse();
           throw new Error(`Unexpected request: ${url}`);
         },
-      });
-      assert.equal(result.status, 'created');
-      assert.equal(payload.title, sourceIssue.title);
-      assert.ok(payload.body.includes(sourceIssue.body));
-      assert.match(payload.body, /Closes #12$/);
+      }), /Changelog is missing or empty: issues\/task\/12\/CHANGELOG\.md/);
+      assert.equal(requests.some(({ options }) => options.method === 'POST'), false);
     } finally {
       await rm(rootDirectory, { recursive: true, force: true });
     }
   });
 }
 
-test('createPullRequest skips an existing open PR without creating another', async () => {
+test('createPullRequest accepts a changelog without other issue documents or a template', async () => {
+  const rootDirectory = await makeIssueDirectory();
+  let payload;
+  try {
+    await rm(join(rootDirectory, '.github', 'PULL_REQUEST_TEMPLATE.md'));
+    for (const fileName of Object.keys(documents)) {
+      if (fileName !== 'CHANGELOG.md') {
+        await rm(join(rootDirectory, 'issues', 'task', '12', fileName));
+      }
+    }
+    const result = await createPullRequest({
+      owner: 'example', repo: 'project', branch: 'task/12', base: 'master',
+      sha: 'abc123', token: 'test-token', rootDirectory,
+      fetchImpl: async (url, options) => {
+        if (url.includes('/pulls?')) return jsonResponse([]);
+        if (url.includes('/compare/')) return comparisonResponse(1);
+        if (url.endsWith('/git/commits/abc123')) {
+          return jsonResponse({ tree: { sha: 'head-tree' } });
+        }
+        if (url.endsWith('/issues/12')) {
+          return jsonResponse({
+            ...sourceIssue, labels: [], assignees: [], milestone: null, node_id: issueNodeId,
+          });
+        }
+        if (url.endsWith('/pulls')) {
+          payload = JSON.parse(options.body);
+          return jsonResponse({
+            number: 15, node_id: pullRequestNodeId,
+            html_url: 'https://github.com/example/project/pull/15',
+          }, 201);
+        }
+        if (url.endsWith('/graphql')) return graphqlLinkResponse();
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    });
+    assert.equal(result.status, 'created');
+    assert.equal(payload.title, sourceIssue.title);
+    assert.match(payload.body, /- Closes #12\n- Changes: issues\/task\/12\/CHANGELOG\.md$/);
+  } finally {
+    await rm(rootDirectory, { recursive: true, force: true });
+  }
+});
+
+test('createPullRequest updates an existing open PR without creating another', async () => {
   const rootDirectory = await makeIssueDirectory();
   const requests = [];
   try {
+    await writeFile(join(rootDirectory, 'issues', 'task', '12', 'README.md'), '# 최신 작업 제목');
+    await writeFile(join(rootDirectory, 'issues', 'task', '12', 'CHANGELOG.md'), '# 변경 로그\n\n- 최신 변경');
     const result = await createPullRequest({
       owner: 'example',
       repo: 'project',
@@ -443,7 +488,7 @@ test('createPullRequest skips an existing open PR without creating another', asy
       fetchImpl: async (url, options) => {
         requests.push({ url, options });
         if (url.includes('/pulls?')) {
-          return jsonResponse([{ number: 8, node_id: pullRequestNodeId }]);
+          return jsonResponse([{ number: 8, node_id: pullRequestNodeId, title: '기존 제목', body: '수동 작성' }]);
         }
         if (url.endsWith('/issues/12')) {
           return jsonResponse({
@@ -456,6 +501,9 @@ test('createPullRequest skips an existing open PR without creating another', asy
         if (url.endsWith('/graphql')) {
           return graphqlLinkResponse();
         }
+        if (url.endsWith('/pulls/8')) {
+          return jsonResponse({});
+        }
         if (url.endsWith('/issues/8')) {
           return jsonResponse({ milestone: { number: 3 } });
         }
@@ -464,24 +512,93 @@ test('createPullRequest skips an existing open PR without creating another', asy
     });
 
     assert.deepEqual(result, { status: 'already-open', number: 8 });
-    assert.equal(requests.length, 6);
+    assert.equal(requests.length, 7);
     assert.match(requests[0].url, /head=example%3Atask%2F12/);
     assert.match(requests[1].url, /\/issues\/12$/);
-    assert.match(requests[2].url, /\/issues\/8\/labels$/);
-    assert.deepEqual(JSON.parse(requests[2].options.body), {
+    assert.match(requests[2].url, /\/pulls\/8$/);
+    assert.equal(requests[2].options.method, 'PATCH');
+    const updated = JSON.parse(requests[2].options.body);
+    assert.deepEqual(Object.keys(updated).sort(), ['body', 'title']);
+    assert.equal(updated.title, '최신 작업 제목');
+    assert.match(updated.body, /최신 변경/);
+    assert.match(updated.body, /blob\/abc123\/issues\/task\/12\/CHANGELOG\.md/);
+    assert.match(updated.body, /- Closes #12\n- Changes: issues\/task\/12\/CHANGELOG\.md$/);
+    assert.doesNotMatch(updated.body, /수동 작성/);
+    assert.match(requests[3].url, /\/issues\/8\/labels$/);
+    assert.deepEqual(JSON.parse(requests[3].options.body), {
       labels: ['task', 'automation'],
     });
-    assert.match(requests[3].url, /\/issues\/8\/assignees$/);
-    assert.deepEqual(JSON.parse(requests[3].options.body), { assignees: ['owner'] });
-    assert.match(requests[4].url, /\/issues\/8$/);
-    assert.equal(requests[4].options.method, 'PATCH');
-    assert.deepEqual(JSON.parse(requests[4].options.body), { milestone: 3 });
-    assert.match(requests[5].url, /\/graphql$/);
-    assert.match(JSON.parse(requests[5].options.body).query, /addCloseIssueReferences/);
-    assert.deepEqual(JSON.parse(requests[5].options.body).variables, {
+    assert.match(requests[4].url, /\/issues\/8\/assignees$/);
+    assert.deepEqual(JSON.parse(requests[4].options.body), { assignees: ['owner'] });
+    assert.match(requests[5].url, /\/issues\/8$/);
+    assert.equal(requests[5].options.method, 'PATCH');
+    assert.deepEqual(JSON.parse(requests[5].options.body), { milestone: 3 });
+    assert.match(requests[6].url, /\/graphql$/);
+    assert.match(JSON.parse(requests[6].options.body).query, /addCloseIssueReferences/);
+    assert.deepEqual(JSON.parse(requests[6].options.body).variables, {
       input: { issueId: issueNodeId, pullRequestIds: [pullRequestNodeId] },
     });
     assert.equal(requests.some(({ url }) => url.endsWith('/requested_reviewers')), false);
+    assert.equal(requests.some(({ url, options }) => url.endsWith('/pulls') && options.method === 'POST'), false);
+  } finally {
+    await rm(rootDirectory, { recursive: true, force: true });
+  }
+});
+
+for (const content of [null, ' \n']) {
+  test(`createPullRequest rejects ${content === null ? 'a missing' : 'an empty'} changelog before updating an existing PR`, async () => {
+    const rootDirectory = await makeIssueDirectory();
+    const requests = [];
+    try {
+      const path = join(rootDirectory, 'issues', 'task', '12', 'CHANGELOG.md');
+      if (content === null) {
+        await rm(path);
+      } else {
+        await writeFile(path, content);
+      }
+      await assert.rejects(createPullRequest({
+        owner: 'example', repo: 'project', branch: 'task/12', base: 'master',
+        sha: 'abc123', token: 'test-token', rootDirectory,
+        fetchImpl: async (url, options) => {
+          requests.push({ url, options });
+          if (url.includes('/pulls?')) {
+            return jsonResponse([{ number: 8, node_id: pullRequestNodeId }]);
+          }
+          if (url.endsWith('/issues/12')) {
+            return jsonResponse({ node_id: issueNodeId, labels: [], assignees: [], milestone: null });
+          }
+          throw new Error(`Unexpected request: ${url}`);
+        },
+      }), /Changelog is missing or empty: issues\/task\/12\/CHANGELOG\.md/);
+      assert.equal(requests.some(({ options }) => ['POST', 'PATCH'].includes(options.method)), false);
+    } finally {
+      await rm(rootDirectory, { recursive: true, force: true });
+    }
+  });
+}
+
+test('createPullRequest propagates errors when updating an existing PR', async () => {
+  const rootDirectory = await makeIssueDirectory();
+  const requests = [];
+  try {
+    await assert.rejects(createPullRequest({
+      owner: 'example', repo: 'project', branch: 'task/12', base: 'master',
+      sha: 'abc123', token: 'test-token', rootDirectory,
+      fetchImpl: async (url, options) => {
+        requests.push({ url, options });
+        if (url.includes('/pulls?')) {
+          return jsonResponse([{ number: 8, node_id: pullRequestNodeId }]);
+        }
+        if (url.endsWith('/issues/12')) {
+          return jsonResponse({ node_id: issueNodeId, labels: [], assignees: [], milestone: null });
+        }
+        if (url.endsWith('/pulls/8')) {
+          return jsonResponse({ message: 'Resource not accessible by integration' }, 403);
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    }), /GitHub API request failed \(403\): Resource not accessible by integration/);
+    assert.equal(requests.length, 3);
   } finally {
     await rm(rootDirectory, { recursive: true, force: true });
   }
@@ -578,6 +695,7 @@ test('createPullRequest creates a new PR after a merged PR when branch has new c
     const payload = JSON.parse(createRequest.options.body);
     assert.equal(payload.head, 'task/12');
     assert.equal(payload.base, 'master');
+    assert.equal(payload.draft, true);
     assert.equal(payload.title, '작업 기록 제목');
     assert.match(payload.body, /사용자가 새 동작을 이용할 수 있다/);
     assert.equal(requests.length, 9);
@@ -818,6 +936,9 @@ for (const existing of [false, true]) {
                 node_id: pullRequestNodeId,
                 html_url: 'https://github.com/example/project/pull/15',
               }, 201);
+            }
+            if (url.endsWith('/pulls/15')) {
+              return jsonResponse({});
             }
             if (url.endsWith('/issues/15')) {
               assert.equal(options.method, 'PATCH');
