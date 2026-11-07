@@ -93,6 +93,7 @@ test('buildPullRequest fills the repository template only from issue documents',
   assert.match(result.body, /- \[X\] 기타/);
   assert.match(result.body, /- \[ \] 기능 추가/);
   assert.match(result.body, /- Closes #12\n- Changes: issues\/task\/12\/CHANGELOG\.md$/);
+  assert.doesNotMatch(result.body, /<\/?details\b/i);
   assert.doesNotMatch(result.body, /<!--/);
   assert.doesNotMatch(result.body, /commit message/i);
 });

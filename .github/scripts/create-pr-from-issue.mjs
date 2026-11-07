@@ -133,7 +133,7 @@ export function buildPullRequest({ template, documents, issue, issueDirectory, o
     for (const [fileName, markdown] of Object.entries(linkedDocuments)) {
       const link = sourceLink(owner, repo, sha, `${issueDirectory}/${fileName}`);
       const record = includeContent
-        ? `<details>\n<summary>${fileName}</summary>\n\n${markdown}\n\n[원문](${link})\n\n</details>`
+        ? `### [${fileName}](${link})\n\n${markdown}`
         : `[${fileName}](${link})`;
       (fileName === 'TASKS.md' ? validation : summary).push(record);
     }

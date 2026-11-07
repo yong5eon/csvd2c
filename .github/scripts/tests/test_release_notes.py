@@ -65,10 +65,12 @@ class ReleaseNotesTests(TestCase):
 	def test_missing_marker_keeps_branch_based_path(self) -> None:
 		for body in (
 			None,
+			'- Changes: tasks/999/CHANGELOG.md\nordinary final line',
 			'<details>\n- Changes: tasks/111/CHANGELOG.md\n</details>\n'
 			'```\n- Changes: tasks/222/CHANGELOG.md\n```\n'
 			'<!--\n- Changes: tasks/333/CHANGELOG.md\n-->\n'
 			'    - Changes: tasks/444/CHANGELOG.md',
+			'\t- Changes: tasks/444/CHANGELOG.md',
 		):
 			with self.subTest(body=body):
 				self.check_output.reset_mock()
@@ -89,7 +91,7 @@ class ReleaseNotesTests(TestCase):
 			'- Changes:',
 			'- Changes tasks/123/CHANGELOG.md',
 			'- Changes=tasks/123/CHANGELOG.md',
-			'- Changes: tasks/123/CHANGELOG.md\n- Changes: tasks/456/CHANGELOG.md',
+			'- Changes: tasks/123/CHANGELOG.md\n\n- Changes: tasks/456/CHANGELOG.md',
 		):
 			with self.subTest(body=body):
 				self.check_output.reset_mock()
@@ -99,14 +101,15 @@ class ReleaseNotesTests(TestCase):
 				self.assertEqual(self.check_output.call_count, 1)
 		return
 
-	def test_document_details_and_fenced_examples_are_not_pr_markers(self) -> None:
+	def test_document_examples_before_footer_do_not_affect_path(self) -> None:
 		body: str = (
 			'<details>\n<summary>Document</summary>\n\n'
+			'Inline `</details>`\n'
 			'- Changes: tasks/111/CHANGELOG.md\n</details>\n\n'
 			'```text\n- Changes: tasks/222/CHANGELOG.md\n```\n\n'
 			'<!--\n- Changes: tasks/444/CHANGELOG.md\n-->\n\n'
 			'    - Changes: tasks/555/CHANGELOG.md\n\n'
-			'- Changes: tasks/333/CHANGELOG.md'
+			'- Closes #12\n- Changes: tasks/333/CHANGELOG.md\n\n'
 		)
 		self.check_output.side_effect = [
 			dumps([[self.pull(body)]]).encode(),
