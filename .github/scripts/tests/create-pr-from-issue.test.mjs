@@ -470,11 +470,12 @@ test('createPullRequest accepts a changelog without other issue documents or a t
   }
 });
 
-test('createPullRequest skips an existing open PR without creating another', async () => {
+test('createPullRequest updates an existing open PR without creating another', async () => {
   const rootDirectory = await makeIssueDirectory();
   const requests = [];
   try {
-    await rm(join(rootDirectory, 'issues', 'task', '12', 'CHANGELOG.md'));
+    await writeFile(join(rootDirectory, 'issues', 'task', '12', 'README.md'), '# 최신 작업 제목');
+    await writeFile(join(rootDirectory, 'issues', 'task', '12', 'CHANGELOG.md'), '# 변경 로그\n\n- 최신 변경');
     const result = await createPullRequest({
       owner: 'example',
       repo: 'project',
@@ -486,7 +487,7 @@ test('createPullRequest skips an existing open PR without creating another', asy
       fetchImpl: async (url, options) => {
         requests.push({ url, options });
         if (url.includes('/pulls?')) {
-          return jsonResponse([{ number: 8, node_id: pullRequestNodeId }]);
+          return jsonResponse([{ number: 8, node_id: pullRequestNodeId, title: '기존 제목', body: '수동 작성' }]);
         }
         if (url.endsWith('/issues/12')) {
           return jsonResponse({
@@ -499,6 +500,9 @@ test('createPullRequest skips an existing open PR without creating another', asy
         if (url.endsWith('/graphql')) {
           return graphqlLinkResponse();
         }
+        if (url.endsWith('/pulls/8')) {
+          return jsonResponse({});
+        }
         if (url.endsWith('/issues/8')) {
           return jsonResponse({ milestone: { number: 3 } });
         }
@@ -507,25 +511,93 @@ test('createPullRequest skips an existing open PR without creating another', asy
     });
 
     assert.deepEqual(result, { status: 'already-open', number: 8 });
-    assert.equal(requests.length, 6);
+    assert.equal(requests.length, 7);
     assert.match(requests[0].url, /head=example%3Atask%2F12/);
     assert.match(requests[1].url, /\/issues\/12$/);
-    assert.match(requests[2].url, /\/issues\/8\/labels$/);
-    assert.deepEqual(JSON.parse(requests[2].options.body), {
+    assert.match(requests[2].url, /\/pulls\/8$/);
+    assert.equal(requests[2].options.method, 'PATCH');
+    const updated = JSON.parse(requests[2].options.body);
+    assert.deepEqual(Object.keys(updated).sort(), ['body', 'title']);
+    assert.equal(updated.title, '최신 작업 제목');
+    assert.match(updated.body, /최신 변경/);
+    assert.match(updated.body, /blob\/abc123\/issues\/task\/12\/CHANGELOG\.md/);
+    assert.match(updated.body, /- Closes #12\n- Changes: issues\/task\/12\/CHANGELOG\.md$/);
+    assert.doesNotMatch(updated.body, /수동 작성/);
+    assert.match(requests[3].url, /\/issues\/8\/labels$/);
+    assert.deepEqual(JSON.parse(requests[3].options.body), {
       labels: ['task', 'automation'],
     });
-    assert.match(requests[3].url, /\/issues\/8\/assignees$/);
-    assert.deepEqual(JSON.parse(requests[3].options.body), { assignees: ['owner'] });
-    assert.match(requests[4].url, /\/issues\/8$/);
-    assert.equal(requests[4].options.method, 'PATCH');
-    assert.deepEqual(JSON.parse(requests[4].options.body), { milestone: 3 });
-    assert.match(requests[5].url, /\/graphql$/);
-    assert.match(JSON.parse(requests[5].options.body).query, /addCloseIssueReferences/);
-    assert.deepEqual(JSON.parse(requests[5].options.body).variables, {
+    assert.match(requests[4].url, /\/issues\/8\/assignees$/);
+    assert.deepEqual(JSON.parse(requests[4].options.body), { assignees: ['owner'] });
+    assert.match(requests[5].url, /\/issues\/8$/);
+    assert.equal(requests[5].options.method, 'PATCH');
+    assert.deepEqual(JSON.parse(requests[5].options.body), { milestone: 3 });
+    assert.match(requests[6].url, /\/graphql$/);
+    assert.match(JSON.parse(requests[6].options.body).query, /addCloseIssueReferences/);
+    assert.deepEqual(JSON.parse(requests[6].options.body).variables, {
       input: { issueId: issueNodeId, pullRequestIds: [pullRequestNodeId] },
     });
     assert.equal(requests.some(({ url }) => url.endsWith('/requested_reviewers')), false);
-    assert.equal(requests.some(({ url, options }) => url.endsWith('/pulls/8') && options.method === 'PATCH'), false);
+    assert.equal(requests.some(({ url, options }) => url.endsWith('/pulls') && options.method === 'POST'), false);
+  } finally {
+    await rm(rootDirectory, { recursive: true, force: true });
+  }
+});
+
+for (const content of [null, ' \n']) {
+  test(`createPullRequest rejects ${content === null ? 'a missing' : 'an empty'} changelog before updating an existing PR`, async () => {
+    const rootDirectory = await makeIssueDirectory();
+    const requests = [];
+    try {
+      const path = join(rootDirectory, 'issues', 'task', '12', 'CHANGELOG.md');
+      if (content === null) {
+        await rm(path);
+      } else {
+        await writeFile(path, content);
+      }
+      await assert.rejects(createPullRequest({
+        owner: 'example', repo: 'project', branch: 'task/12', base: 'master',
+        sha: 'abc123', token: 'test-token', rootDirectory,
+        fetchImpl: async (url, options) => {
+          requests.push({ url, options });
+          if (url.includes('/pulls?')) {
+            return jsonResponse([{ number: 8, node_id: pullRequestNodeId }]);
+          }
+          if (url.endsWith('/issues/12')) {
+            return jsonResponse({ node_id: issueNodeId, labels: [], assignees: [], milestone: null });
+          }
+          throw new Error(`Unexpected request: ${url}`);
+        },
+      }), /Changelog is missing or empty: issues\/task\/12\/CHANGELOG\.md/);
+      assert.equal(requests.some(({ options }) => ['POST', 'PATCH'].includes(options.method)), false);
+    } finally {
+      await rm(rootDirectory, { recursive: true, force: true });
+    }
+  });
+}
+
+test('createPullRequest propagates errors when updating an existing PR', async () => {
+  const rootDirectory = await makeIssueDirectory();
+  const requests = [];
+  try {
+    await assert.rejects(createPullRequest({
+      owner: 'example', repo: 'project', branch: 'task/12', base: 'master',
+      sha: 'abc123', token: 'test-token', rootDirectory,
+      fetchImpl: async (url, options) => {
+        requests.push({ url, options });
+        if (url.includes('/pulls?')) {
+          return jsonResponse([{ number: 8, node_id: pullRequestNodeId }]);
+        }
+        if (url.endsWith('/issues/12')) {
+          return jsonResponse({ node_id: issueNodeId, labels: [], assignees: [], milestone: null });
+        }
+        if (url.endsWith('/pulls/8')) {
+          return jsonResponse({ message: 'Resource not accessible by integration' }, 403);
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      },
+    }), /GitHub API request failed \(403\): Resource not accessible by integration/);
+    assert.equal(requests.length, 3);
   } finally {
     await rm(rootDirectory, { recursive: true, force: true });
   }
@@ -863,6 +935,9 @@ for (const existing of [false, true]) {
                 node_id: pullRequestNodeId,
                 html_url: 'https://github.com/example/project/pull/15',
               }, 201);
+            }
+            if (url.endsWith('/pulls/15')) {
+              return jsonResponse({});
             }
             if (url.endsWith('/issues/15')) {
               assert.equal(options.method, 'PATCH');
