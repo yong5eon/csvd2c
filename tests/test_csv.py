@@ -2,7 +2,12 @@
 
 from csv import (
 	Error,
+	field_size_limit,
 	reader as csv_reader,
+)
+from inspect import (
+	Parameter,
+	signature,
 )
 from io import (
 	BufferedReader,
@@ -10,11 +15,15 @@ from io import (
 	StringIO,
 )
 from pathlib import Path
+from sys import modules
 from tempfile import TemporaryDirectory
 from typing import (
+	Generator,
+	Iterator,
 	List,
 	Optional,
 	Union,
+	get_type_hints,
 )
 from unittest import (
 	TestCase,
@@ -22,7 +31,11 @@ from unittest import (
 )
 from unittest.mock import patch
 
-from csvd2c import CSV
+from csvd2c import (
+	CSV,
+	MAX_FIELD_SIZE,
+	__all__ as package_exports,
+)
 from csvd2c.header import Validator as HeaderValidator
 from csvd2c.row import (
 	Error as RowError,
@@ -115,8 +128,196 @@ class CSVTests(TestCase):
 	def setUp(self) -> None:
 		self.directory = TemporaryDirectory()
 		self.addCleanup(self.directory.cleanup)
+		previous_limit: int = field_size_limit()
+		self.addCleanup(field_size_limit, previous_limit)
 		self.path: Path = Path(self.directory.name) / 'input.csv'
 		self.path.write_bytes(b'name,note\n a , b \nc,d\n')
+		return
+
+	def test_field_size_limit_public_api(self) -> None:
+		self.assertEqual(MAX_FIELD_SIZE, 2_147_483_647)
+		self.assertIn('MAX_FIELD_SIZE', package_exports)
+		parameter: Parameter = signature(CSV).parameters['field_size_limit']
+		self.assertEqual(parameter.kind, Parameter.KEYWORD_ONLY)
+		self.assertIsNone(parameter.default)
+		self.assertEqual(get_type_hints(CSV.__init__)['field_size_limit'], Optional[int])
+		with patch.object(modules[CSV.__module__], 'csv_field_size_limit', wraps=field_size_limit) as setter:
+			CSV(field_size_limit=MAX_FIELD_SIZE)
+			setter.assert_called_once_with(MAX_FIELD_SIZE)
+		self.assertEqual(field_size_limit(), MAX_FIELD_SIZE)
+		return
+
+	def test_field_size_limit_none_preserves_global_setting(self) -> None:
+		field_size_limit(7)
+		with patch.object(modules[CSV.__module__], 'csv_field_size_limit') as setter:
+			CSV()
+			CSV(field_size_limit=None)
+			setter.assert_not_called()
+		self.assertEqual(field_size_limit(), 7)
+		return
+
+	def test_field_size_limit_invalid_values_preserve_global_setting(self) -> None:
+		for value in (
+			-1,
+			MAX_FIELD_SIZE + 1,
+			10 ** 100,
+		):
+			with self.subTest(value=value):
+				field_size_limit(7)
+				with patch.object(modules[CSV.__module__], 'csv_field_size_limit') as setter:
+					with self.assertRaisesRegex(ValueError, 'field_size_limit'):
+						CSV(field_size_limit=value)
+					setter.assert_not_called()
+				self.assertEqual(field_size_limit(), 7)
+		for value in (
+			True,
+			False,
+			'3',
+			3.0,
+		):
+			with self.subTest(value=value):
+				field_size_limit(7)
+				with patch.object(modules[CSV.__module__], 'csv_field_size_limit') as setter:
+					with self.assertRaisesRegex(TypeError, 'field_size_limit'):
+						CSV(field_size_limit=value)  # type: ignore[arg-type]
+					setter.assert_not_called()
+				self.assertEqual(field_size_limit(), 7)
+		return
+
+	def test_other_invalid_arguments_do_not_set_field_size_limit(self) -> None:
+		for arguments in (
+			{'header': 1},
+			{'row': ColumnValidator()},
+			{'column': []},
+			{'offset': None},
+			{'offset': -1},
+			{'limit': -1},
+		):
+			with self.subTest(arguments=arguments):
+				field_size_limit(7)
+				with patch.object(modules[CSV.__module__], 'csv_field_size_limit') as setter:
+					with self.assertRaises((TypeError, ValueError)):
+						CSV(field_size_limit=3, **arguments)  # type: ignore[arg-type]
+					setter.assert_not_called()
+				self.assertEqual(field_size_limit(), 7)
+		return
+
+	def test_field_size_limit_setter_failure_propagates(self) -> None:
+		failure: OverflowError = OverflowError('Unsupported limit')
+		with patch.object(modules[CSV.__module__], 'csv_field_size_limit', side_effect=failure) as setter:
+			with self.assertRaises(OverflowError) as context:
+				CSV(field_size_limit=3)
+			self.assertIs(context.exception, failure)
+			setter.assert_called_once_with(3)
+		return
+
+	def test_field_size_limit_reads_field_above_default(self) -> None:
+		self.path.write_text('x' * 131073, encoding='utf-8')
+		field_size_limit(131072)
+		with CSV().open(str(self.path)) as data:
+			with self.assertRaisesRegex(Error, '131072'):
+				data.row()
+			self.assertIsNone(data.raw())
+		with CSV(field_size_limit=131073).open(str(self.path)) as data:
+			self.assertEqual(len(data.row()[0]), 131073)
+		return
+
+	def test_field_size_limit_boundaries_in_all_read_modes(self) -> None:
+		for mode in (
+			'rb',
+			'r',
+			'rt',
+		):
+			for character in (
+				'x',
+				'가',
+			):
+				for use_rows in (
+					False,
+					True,
+				):
+					with self.subTest(mode=mode, character=character, use_rows=use_rows):
+						self.path.write_text(character * 3 + '\n' + character * 4 + '\n', encoding='utf-8')
+						data: CSV = CSV(field_size_limit=3)
+						with data.open(str(self.path), mode):
+							records: Optional[Generator[List[str], None, None]] = data.rows() if use_rows else None
+							record: List[str] = next(records) if records is not None else data.row()
+							self.assertEqual(record, [character * 3])
+							with self.assertRaisesRegex(Error, 'field larger than field limit'):
+								if records is not None:
+									next(records)
+								else:
+									data.row()
+							self.assertIsNone(data.raw())
+						self.assertIsNone(data.text)
+						self.assertIsNone(data.reader)
+		return
+
+	def test_field_size_limit_zero_allows_only_empty_fields(self) -> None:
+		self.path.write_bytes(b'""\nx\n')
+		with CSV(field_size_limit=0).open(str(self.path)) as data:
+			self.assertEqual(data.row(), [''])
+			with self.assertRaisesRegex(Error, 'field larger than field limit'):
+				data.row()
+		self.assertEqual(field_size_limit(), 0)
+		return
+
+	def test_field_size_limit_applies_to_header_and_offset(self) -> None:
+		self.path.write_bytes(b'abcd\nx\n')
+		for mode in (
+			'rb',
+			'r',
+			'rt',
+		):
+			with self.subTest(mode=mode, path='header'):
+				data: CSV = CSV(header=HeaderValidator(), field_size_limit=3)
+				with self.assertRaises(Error):
+					with data.open(str(self.path), mode):
+						self.fail('An oversized header must fail before entering the context')
+				self.assertIsNone(data.reader)
+				self.assertIsNone(data.text)
+			with self.subTest(mode=mode, path='offset'):
+				data = CSV(offset=1, field_size_limit=3)
+				with data.open(str(self.path), mode):
+					with self.assertRaises(Error):
+						data.row()
+					self.assertIsNone(data.raw())
+				self.assertIsNone(data.text)
+		return
+
+	def test_field_size_limit_changes_existing_readers(self) -> None:
+		self.path.write_bytes(b'abcd\nabcd\n')
+		field_size_limit(3)
+		source: Iterator[List[str]] = csv_reader(StringIO('abcd\nabcd\n'))
+		data: CSV = CSV()
+		with data.open(str(self.path)):
+			CSV(field_size_limit=4)
+			self.assertEqual(next(source), ['abcd'])
+			self.assertEqual(data.row(), ['abcd'])
+			CSV(field_size_limit=3)
+			with self.assertRaises(Error):
+				next(source)
+			with self.assertRaises(Error):
+				data.row()
+		self.assertEqual(field_size_limit(), 3)
+		return
+
+	def test_field_size_limit_is_not_reapplied_or_restored(self) -> None:
+		self.path.write_bytes(b'abcd\n')
+		data: CSV = CSV(field_size_limit=3)
+		field_size_limit(4)
+		with patch.object(modules[CSV.__module__], 'csv_field_size_limit') as setter:
+			with data.open(str(self.path)):
+				self.assertEqual(data.row(), ['abcd'])
+				data.close()
+				self.assertEqual(field_size_limit(), 4)
+			with data.open(str(self.path)):
+				self.assertEqual(list(data.rows()), [['abcd']])
+			with self.assertRaisesRegex(RuntimeError, 'body failure'):
+				with data.open(str(self.path)):
+					raise RuntimeError('body failure')
+			setter.assert_not_called()
+		self.assertEqual(field_size_limit(), 4)
 		return
 
 	def test_header_returns_stored_copy_without_consuming(self) -> None:

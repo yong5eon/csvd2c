@@ -88,6 +88,8 @@ See [header validation](./docs/README.en.md#header-validation) for header Patter
 
 ### Reading options and output
 
+Constructor `field_size_limit=None` preserves the current standard CSV field limit. Specify an integer from `0` through the public `MAX_FIELD_SIZE` constant (`2_147_483_647`). Out-of-range settings raise `ValueError`, invalid types raise `TypeError`, and oversized input fields raise `csv.Error`. Changes affect other readers, are not restored on closing, and do not guarantee memory safety. See [field size limit](./docs/README.en.md#field-size-limit) for examples and constraints.
+
 CSV defaults to `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, and `strict=True`. `open(path, mode="rb", header=None, offset=None, limit=None)` accepts only `rb`, `r`, and `rt`. Binary mode decodes through TextIOWrapper; text modes use the same encoding, errors, and newline settings. Write, append, and update modes are rejected before opening.
 
 `row()` and `rows()` always return lists. Combine them with the validated header when you need dictionaries.

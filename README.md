@@ -88,6 +88,8 @@ with csv.open("input.csv"):
 
 ### 읽기 설정과 반환값
 
+생성자의 `field_size_limit=None`은 현재 표준 CSV 필드 제한을 유지합니다. 정수 `0`부터 공개 상수 `MAX_FIELD_SIZE` (`2_147_483_647`)까지 지정할 수 있습니다. 범위 밖은 `ValueError`, 잘못된 타입은 `TypeError`이며, 읽는 필드가 제한을 넘으면 `csv.Error`입니다. 설정은 다른 reader에도 영향을 주고 종료 후 복원되지 않으며 메모리 안전을 보장하지 않습니다. 예제와 자세한 제약은 [필드 크기 제한](./docs/README.md#필드-크기-제한)을 참고하세요.
+
 `CSV`의 기본 설정은 `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, `strict=True`입니다. `open(path, mode="rb", header=None, offset=None, limit=None)`는 `rb`·`r`·`rt`만 지원합니다. 바이너리 모드에서는 `TextIOWrapper`로 디코딩하며, 텍스트 모드도 같은 인코딩·오류·개행 설정을 적용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다.
 
 `row()`·`rows()`는 항상 list를 반환합니다. dict가 필요하면 검증된 헤더와 직접 연결합니다.
