@@ -110,6 +110,7 @@ jobs:
           from json import loads
           from os import environ
           from pathlib import Path
+          from re import IGNORECASE, findall, fullmatch, match
           from subprocess import check_output
 
           head = environ['GITHUB_SHA']
@@ -146,7 +147,67 @@ jobs:
               print('Direct master push: generating release notes from commits')
           else:
               branch = pulls[0]['head']['ref']
-              path = f'issues/{branch}/CHANGELOG.md'
+              pr_body = pulls[0].get('body')
+              if pr_body is not None and not isinstance(pr_body, str):
+                  raise ValueError('PR body must be text')
+              changes = []
+              fence = None
+              details_depth = 0
+              in_comment = False
+              for line in (pr_body or '').splitlines():
+                  if fence is None:
+                      visible = ''
+                      remaining = line
+                      while remaining:
+                          if in_comment:
+                              end = remaining.find('-->')
+                              if end < 0:
+                                  break
+                              remaining = remaining[end + 3:]
+                              in_comment = False
+                          else:
+                              start = remaining.find('<!--')
+                              if start < 0:
+                                  visible += remaining
+                                  break
+                              visible += remaining[:start]
+                              remaining = remaining[start + 4:]
+                              in_comment = True
+                      line = visible
+                  if not details_depth and (line.startswith('    ') or line.startswith('\t')):
+                      continue
+                  stripped = line.strip()
+                  fence_match = match(r'^(`{3,}|~{3,})(.*)$', stripped)
+                  if fence is not None:
+                      if (fence_match and fence_match[1][0] == fence[0]
+                              and len(fence_match[1]) >= len(fence)
+                              and not fence_match[2].strip()):
+                          fence = None
+                      continue
+                  if fence_match:
+                      fence = fence_match[1]
+                      continue
+                  detail_tags = findall(r'<(/?)details\b[^>]*>', line, IGNORECASE)
+                  if details_depth or detail_tags:
+                      for closing in detail_tags:
+                          details_depth += -1 if closing else 1
+                      if details_depth < 0:
+                          raise ValueError('Invalid PR details markup')
+                      continue
+                  if match(r'^(?:[-*]\s*Changes\b|Changes:)', stripped):
+                      changes.append(stripped)
+              if len(changes) > 1:
+                  raise ValueError('Multiple Changes entries in PR body')
+              if changes:
+                  entry_match = fullmatch(
+                      r'- Changes: ((?:issues/(?:bug|fix|feature|task)/[A-Za-z0-9][A-Za-z0-9._-]*|tasks/[0-9]+)/CHANGELOG\.md)',
+                      changes[0],
+                  )
+                  if not entry_match:
+                      raise ValueError(f'Invalid Changes entry: {changes[0]}')
+                  path = entry_match[1]
+              else:
+                  path = f'issues/{branch}/CHANGELOG.md'
               entry = check_output(['git', 'ls-tree', head, '--', path]).decode().split()
               if not entry or entry[0] not in ('100644', '100755'):
                   raise ValueError(f'Changelog must exist as a regular file: {path}')
