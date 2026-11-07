@@ -12,6 +12,7 @@
    - [`CODE.instructions.md`](.instructions/CODE.instructions.md): csvd2c 코드의 독스트링·주석·오류 메시지 등 영어 작성 정책
    - [`DEV.Python.instructions.md`](.instructions.assistant/DEV.Python.instructions.md): Python 코드 스타일, 타입 힌트와 구현 규칙
    - [`DEV.Javascript.instructions.md`](.instructions.assistant/DEV.Javascript.instructions.md): JavaScript 모듈, 실행 흐름, 오류와 테스트
+   - 코드 변경 시 변경 로그 작성 전에 [`DOCS.instructions.md`](.instructions/DOCS.instructions.md)와 [`README.instructions.md`](.instructions/README.instructions.md)를 확인해 상세 매뉴얼과 프로젝트 루트 README의 영향 여부를 검토한다. 영향이 있는 문서는 해당 지침에 따라 갱신하고, 갱신이 불필요하면 이유를 작업 기록에 남긴다.
 4. 문서 작업은 [`MARKDOWN.instructions.md`](.instructions.assistant/MARKDOWN.instructions.md)의 Markdown 작성 규칙을 확인하고, 대상에 맞는 지침을 함께 읽는다.
    - [`README.instructions.md`](.instructions/README.instructions.md): 프로젝트 루트 README의 역할과 언어별 작성 규칙
    - [`DOCS.instructions.md`](.instructions/DOCS.instructions.md): 상세 매뉴얼과 한국어·영어 문서의 동기화
