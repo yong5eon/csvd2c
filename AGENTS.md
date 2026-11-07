@@ -4,18 +4,18 @@
 
 ## 세부 지침
 
-작업 전에 [`.instructions/`](.instructions/)의 지침을 다음 순서로 확인한다. 각 지침의 적용 범위와 참조 자료도 확인하고 작업에 필요한 지침을 직접 읽는다. 목록에 없는 지침이 새로 추가된 경우에도 관련 여부를 확인한다.
+작업 전에 공통 에이전트 지침 [`.instructions.assistant/`](.instructions.assistant/)와 csvd2c 전용 지침 [`.instructions/`](.instructions/)을 다음 순서로 확인한다. 각 지침의 적용 범위와 참조 자료도 확인하고 작업에 필요한 지침을 직접 읽는다. 목록에 없는 지침이 새로 추가된 경우에도 관련 여부를 확인한다.
 
-1. 모든 작업은 [`INSTRUCTIONS.instructions.md`](.instructions/INSTRUCTIONS.instructions.md)에서 지침 탐색과 작업 권한을 확인한다.
-2. 모든 실제 작업은 [`TASK.instructions.md`](.instructions/TASK.instructions.md)에서 작업 절차, 기록과 검증 지침을 확인한다.
-3. 코드 작업은 [`DEV.instructions.md`](.instructions/DEV.instructions.md)의 개발 원칙과 검증 기준을 확인하고, 대상에 맞는 지침을 함께 읽는다.
+1. 모든 작업은 [`INSTRUCTIONS.instructions.md`](.instructions.assistant/INSTRUCTIONS.instructions.md)에서 지침 탐색과 작업 권한을 확인한다.
+2. 모든 실제 작업은 [`TASK.instructions.md`](.instructions.assistant/TASK.instructions.md)에서 작업 절차, 기록과 검증 지침을 확인한다.
+3. 코드 작업은 [`DEV.instructions.md`](.instructions.assistant/DEV.instructions.md)의 개발 원칙과 검증 기준을 확인하고, 대상에 맞는 지침을 함께 읽는다.
    - [`CODE.instructions.md`](.instructions/CODE.instructions.md): csvd2c 코드의 독스트링·주석·오류 메시지 등 영어 작성 정책
-   - [`DEV.Python.instructions.md`](.instructions/DEV.Python.instructions.md): Python 코드 스타일, 타입 힌트와 구현 규칙
-   - [`DEV.Javascript.instructions.md`](.instructions/DEV.Javascript.instructions.md): JavaScript 모듈, 실행 흐름, 오류와 테스트
-4. 문서 작업은 [`MARKDOWN.instructions.md`](.instructions/MARKDOWN.instructions.md)의 Markdown 작성 규칙을 확인하고, 대상에 맞는 지침을 함께 읽는다.
+   - [`DEV.Python.instructions.md`](.instructions.assistant/DEV.Python.instructions.md): Python 코드 스타일, 타입 힌트와 구현 규칙
+   - [`DEV.Javascript.instructions.md`](.instructions.assistant/DEV.Javascript.instructions.md): JavaScript 모듈, 실행 흐름, 오류와 테스트
+4. 문서 작업은 [`MARKDOWN.instructions.md`](.instructions.assistant/MARKDOWN.instructions.md)의 Markdown 작성 규칙을 확인하고, 대상에 맞는 지침을 함께 읽는다.
    - [`README.instructions.md`](.instructions/README.instructions.md): 프로젝트 루트 README의 역할과 언어별 작성 규칙
    - [`DOCS.instructions.md`](.instructions/DOCS.instructions.md): 상세 매뉴얼과 한국어·영어 문서의 동기화
-5. 커밋 메시지를 작성하거나 검토할 때는 [`GIT.COMMIT.MESSAGE.instructions.md`](.instructions/GIT.COMMIT.MESSAGE.instructions.md)를 확인한다.
+5. 커밋 메시지를 작성하거나 검토할 때는 [`GIT.COMMIT.MESSAGE.instructions.md`](.instructions.assistant/GIT.COMMIT.MESSAGE.instructions.md)를 확인한다.
 
 위 순서는 지침을 찾아 읽는 순서이며 그 자체가 지침 간 우선순위를 뜻하지 않는다. 공통 규칙과 프로젝트별 적용 범위·예외를 함께 따른다. 예를 들어 코드 내 문구는 공통 개발 지침의 한국어 규칙 대신 프로젝트의 영어 정책을 적용한다.
 
@@ -40,8 +40,9 @@
 - 이슈가 없는 실제 작업은 이슈를 임의로 만들거나 식별자를 추측하지 않고, 저장소 루트의 `tasks/<UNIX_TIMESTAMP>/`에 기록한다. 단순 질문·설명·의견 검토에는 작업 기록을 만들지 않는다.
 - 디렉터리 이름은 작업을 식별하는 Unix epoch 밀리초 숫자다. 기존 이름과 충돌하지 않도록 확인하고 기존 기록을 덮어쓰지 않는다.
 - `README.md`에 작업의 목적과 범위, 진행 상태 및 관련 기록을 정리한다.
+- 이슈 작업과 같이 `REQUIREMENTS.md`, `PLAN.md`, `CHANGELOG.md`와 해당하는 종합 실행 기록을 작성한다.
 - 의미 있는 작업 단위의 근거, 구현, 구현 외 작업은 필요에 따라 각각 `context/`, `implements/`, `tasks/`에 기록한다. 작업 단위별 파일명에 Unix epoch 밀리초를 사용하며, 같은 작업 단위의 기록은 세 디렉터리에서 동일한 타임스탬프를 사용한다.
-- 디렉터리의 타임스탬프는 작업 전체를 식별하고, 단계별 기록의 타임스탬프는 각 작업 단위를 식별한다. 단계별 기록의 내용과 타임스탬프 생성은 [이슈 작업 지침의 단계별 기록 규칙](.instructions/TASK.instructions.md#단계별-근거구현작업-기록)을 따른다.
+- 디렉터리의 타임스탬프는 작업 전체를 식별하고, 단계별 기록의 타임스탬프는 각 작업 단위를 식별한다. 단계별 기록의 내용과 타임스탬프 생성은 [작업 지침의 단계별 기록 규칙](.instructions.assistant/TASK.instructions.md#단계별-근거구현작업-기록)을 따른다.
 
 ## 원격 에이전트
 
