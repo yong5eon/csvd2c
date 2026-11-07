@@ -154,9 +154,6 @@ jobs:
               last = lines[-1] if lines else ''
               marker = r'^(?:[-*]\s*Changes\b|Changes:)'
               if not last.startswith(('    ', '\t')) and match(marker, last.strip()):
-                  if (len(lines) > 1 and not lines[-2].startswith(('    ', '\t'))
-                          and match(marker, lines[-2].strip())):
-                      raise ValueError('Multiple Changes entries in PR footer')
                   entry_match = fullmatch(
                       r'- Changes: ((?:issues/(?:bug|fix|feature|task)/[A-Za-z0-9][A-Za-z0-9._-]*|tasks/[0-9]+)/CHANGELOG\.md)',
                       last.strip(),

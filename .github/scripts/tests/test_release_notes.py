@@ -83,7 +83,7 @@ class ReleaseNotesTests(TestCase):
 				self.assertEqual(self.check_output.call_args_list[1].args[0], ['git', 'ls-tree', 'test-head', '--', 'issues/task/12/CHANGELOG.md'])
 		return
 
-	def test_invalid_and_duplicate_markers_do_not_fall_back(self) -> None:
+	def test_invalid_markers_do_not_fall_back(self) -> None:
 		for body in (
 			'- Changes: ../CHANGELOG.md',
 			'- Changes: tasks/../CHANGELOG.md',
@@ -91,7 +91,6 @@ class ReleaseNotesTests(TestCase):
 			'- Changes:',
 			'- Changes tasks/123/CHANGELOG.md',
 			'- Changes=tasks/123/CHANGELOG.md',
-			'- Changes: tasks/123/CHANGELOG.md\n\n- Changes: tasks/456/CHANGELOG.md',
 		):
 			with self.subTest(body=body):
 				self.check_output.reset_mock()
@@ -109,7 +108,8 @@ class ReleaseNotesTests(TestCase):
 			'```text\n- Changes: tasks/222/CHANGELOG.md\n```\n\n'
 			'<!--\n- Changes: tasks/444/CHANGELOG.md\n-->\n\n'
 			'    - Changes: tasks/555/CHANGELOG.md\n\n'
-			'- Closes #12\n- Changes: tasks/333/CHANGELOG.md\n\n'
+			'- Closes #12\n- Changes: tasks/123/CHANGELOG.md\n\n'
+			'- Changes: tasks/333/CHANGELOG.md\n\n'
 		)
 		self.check_output.side_effect = [
 			dumps([[self.pull(body)]]).encode(),
