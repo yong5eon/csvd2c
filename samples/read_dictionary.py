@@ -7,7 +7,7 @@ from csvd2c.header import Validator as HeaderValidator
 
 def main() -> None:
 	"""
-	Build dictionaries from the validated header and list records.
+	Read mapping records from row() and rows() with header validation.
 	"""
 	with TemporaryDirectory() as directory:
 		path: Path = Path(directory) / 'input.csv'
@@ -20,28 +20,26 @@ def main() -> None:
 				'name',
 				'date',
 			]
-			record: dict[str, str] = dict(zip(header, csv.row()))
+			record: dict[str, str] = dict(csv.row())
 			assert record == {
 				'name': 'Kim',
 				'date': '1-10',
 			}
 			print(record)
 			for values in csv.rows():
-				record = dict(zip(header, values))
+				record = dict(values)
 				assert record == {
 					'name': 'Lee',
 					'date': '23-Feb',
 				}
 				print(record)
 		with csv.open(str(path)):
-			# Use different keys by zipping list records with any names.
-			first: dict[str, str] = dict(zip(
-				(
-					'company',
-					'raw_date',
-				),
-				csv.row(),
-			))
+			# Use different keys by re-mapping the named result.
+			base: dict[str, str] = dict(csv.row())
+			first: dict[str, str] = {
+				'company': base['name'],
+				'raw_date': base['date'],
+			}
 			assert first == {
 				'company': 'Kim',
 				'raw_date': '1-10',

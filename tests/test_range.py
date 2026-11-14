@@ -4,6 +4,7 @@ from csv import Error
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import (
+	Dict,
 	List,
 	Union,
 )
@@ -94,8 +95,8 @@ class RangeTests(TestCase):
 	def read_all(
 		self,
 		csv: CSV,
-	) -> List[List[str]]:
-		records: List[List[str]] = []
+	) -> List[Union[List[str], Dict[str, str]]]:
+		records: List[Union[List[str], Dict[str, str]]] = []
 		while True:
 			try:
 				records.append(csv.row())
@@ -113,7 +114,10 @@ class RangeTests(TestCase):
 				csv.row(offset=1)  # type: ignore[call-arg]
 			with self.assertRaises(TypeError):
 				csv.rows(limit=1)  # type: ignore[call-arg]
-			self.assertEqual(list(csv.rows()), [['r1'], ['r2']])
+			self.assertEqual(list(csv.rows()), [
+				{'id': 'r1'},
+				{'id': 'r2'},
+			])
 		return
 
 	def test_invalid_values_are_rejected(self) -> None:
@@ -173,15 +177,28 @@ class RangeTests(TestCase):
 			limit=2,
 		)
 		with csv.open(str(self.path)):
-			self.assertEqual(self.read_all(csv), [['r1'], ['r2']])
+			self.assertEqual(self.read_all(csv), [
+				{'id': 'r1'},
+				{'id': 'r2'},
+			])
 		with csv.open(str(self.path), offset=3):
-			self.assertEqual(self.read_all(csv), [['r3'], ['r4']])
+			self.assertEqual(self.read_all(csv), [
+				{'id': 'r3'},
+				{'id': 'r4'},
+			])
 		with csv.open(str(self.path), limit=1):
-			self.assertEqual(self.read_all(csv), [['r1']])
+			self.assertEqual(self.read_all(csv), [{'id': 'r1'}])
 		with csv.open(str(self.path), offset=0, limit=3):
-			self.assertEqual(self.read_all(csv), [['r0'], ['r1'], ['r2']])
+			self.assertEqual(self.read_all(csv), [
+				{'id': 'r0'},
+				{'id': 'r1'},
+				{'id': 'r2'},
+			])
 		with csv.open(str(self.path), offset=None, limit=None):
-			self.assertEqual(self.read_all(csv), [['r1'], ['r2']])
+			self.assertEqual(self.read_all(csv), [
+				{'id': 'r1'},
+				{'id': 'r2'},
+			])
 		self.assertEqual(csv.offset, 1)
 		self.assertEqual(csv.limit, 2)
 		return
@@ -197,7 +214,7 @@ class RangeTests(TestCase):
 	def test_position_zero_depends_on_header_validation(self) -> None:
 		with CSV(header=HeaderValidator()).open(str(self.path), offset=0, limit=1) as csv:
 			self.assertEqual(csv.header(), ['id'])
-			self.assertEqual(self.read_all(csv), [['r0']])
+			self.assertEqual(self.read_all(csv), [{'id': 'r0'}])
 		with CSV().open(str(self.path), offset=0, limit=1) as csv:
 			self.assertIsNone(csv.header())
 			self.assertEqual(self.read_all(csv), [['id']])
@@ -208,7 +225,7 @@ class RangeTests(TestCase):
 	def test_quoted_newline_is_one_record(self) -> None:
 		self.write(b'id\n"a\nb"\n"c\nd"\ne\n')
 		with CSV(header=HeaderValidator()).open(str(self.path), offset=1, limit=1) as csv:
-			self.assertEqual(self.read_all(csv), [['c\nd']])
+			self.assertEqual(self.read_all(csv), [{'id': 'c\nd'}])
 		return
 
 	def test_offset_skips_validation(self) -> None:
@@ -221,7 +238,7 @@ class RangeTests(TestCase):
 			offset=2,
 		)
 		with csv.open(str(self.path)):
-			self.assertEqual(csv.row(), ['r2'])
+			self.assertEqual(csv.row(), {'id': 'r2'})
 		self.assertEqual(row.seen, [['r2']])
 		self.assertEqual(column.seen, ['r2'])
 		return
@@ -250,7 +267,7 @@ class RangeTests(TestCase):
 			column=(ColumnValidator(RejectValue('r1')),),
 			limit=3,
 		)
-		results: List[Union[List[str], int]] = []
+		results: List[Union[Dict[str, str], int]] = []
 		with csv.open(str(self.path)):
 			while True:
 				try:
@@ -259,7 +276,7 @@ class RangeTests(TestCase):
 					results.append(error.row)
 				except StopIteration:
 					break
-		self.assertEqual(results, [['r0'], 3, ['r2']])
+		self.assertEqual(results, [{'id': 'r0'}, 3, {'id': 'r2'}])
 		return
 
 	def test_row_validation_failure_counts_toward_limit(self) -> None:
@@ -281,10 +298,10 @@ class RangeTests(TestCase):
 	def test_parse_error_does_not_count_toward_limit(self) -> None:
 		self.write(b'id\nr0\n', PARSE_ERROR, b'r2\nr3\n')
 		with CSV(header=HeaderValidator()).open(str(self.path), limit=2) as csv:
-			self.assertEqual(csv.row(), ['r0'])
+			self.assertEqual(csv.row(), {'id': 'r0'})
 			with self.assertRaises(Error):
 				csv.row()
-			self.assertEqual(csv.row(), ['r2'])
+			self.assertEqual(csv.row(), {'id': 'r2'})
 			with self.assertRaises(StopIteration):
 				csv.row()
 		return
@@ -292,11 +309,11 @@ class RangeTests(TestCase):
 	def test_limit_does_not_read_next_record(self) -> None:
 		self.write(b'id\nr0\nr1\n', PARSE_ERROR)
 		with CSV(header=HeaderValidator()).open(str(self.path), limit=2) as csv:
-			self.assertEqual(self.read_all(csv), [['r0'], ['r1']])
+			self.assertEqual(self.read_all(csv), [{'id': 'r0'}, {'id': 'r1'}])
 			with self.assertRaises(StopIteration):
 				csv.row()
 		with CSV(header=HeaderValidator()).open(str(self.path), limit=2) as csv:
-			self.assertEqual(list(csv.rows()), [['r0'], ['r1']])
+			self.assertEqual(list(csv.rows()), [{'id': 'r0'}, {'id': 'r1'}])
 			self.assertEqual(list(csv.rows()), [])
 		return
 
@@ -310,7 +327,11 @@ class RangeTests(TestCase):
 		return
 
 	def test_row_rows_and_mixed_reads_share_range(self) -> None:
-		expected: List[List[str]] = [['r1'], ['r2'], ['r3']]
+		expected: List[Dict[str, str]] = [
+			{'id': 'r1'},
+			{'id': 'r2'},
+			{'id': 'r3'},
+		]
 		csv = CSV(
 			header=HeaderValidator(),
 			offset=1,
@@ -321,11 +342,11 @@ class RangeTests(TestCase):
 		with csv.open(str(self.path)):
 			self.assertEqual(list(csv.rows()), expected)
 		with csv.open(str(self.path)):
-			mixed: List[List[str]] = [csv.row()]
+			mixed: List[Dict[str, str]] = [dict(csv.row())]
 			rows = csv.rows()
-			mixed.append(next(rows))
-			mixed.append(csv.row())
-			mixed.extend(rows)
+			mixed.append(dict(next(rows)))
+			mixed.append(dict(csv.row()))
+			mixed.extend([dict(record) for record in rows])
 			self.assertEqual(mixed, expected)
 		return
 
@@ -337,20 +358,26 @@ class RangeTests(TestCase):
 			limit=3,
 		)
 		with csv.open(str(self.path)):
-			records: List[List[str]] = []
+			records: List[Dict[str, str]] = []
 			with self.assertRaises(ColumnError):
 				for record in csv.rows():
 					records.append(record)
-			records.extend(csv.rows())
-		self.assertEqual(records, [['r1'], ['r3']])
+			records.extend([dict(record) for record in csv.rows()])
+		self.assertEqual(records, [{'id': 'r1'}, {'id': 'r3'}])
 		return
 
 	def test_unbounded_range_matches_default(self) -> None:
 		with CSV(header=HeaderValidator()).open(str(self.path)) as csv:
-			default: List[List[str]] = list(csv.rows())
+			default: List[Dict[str, str]] = list(csv.rows())
 		with CSV(header=HeaderValidator(), offset=0, limit=None).open(str(self.path)) as csv:
 			self.assertEqual(list(csv.rows()), default)
-		self.assertEqual(default, [['r0'], ['r1'], ['r2'], ['r3'], ['r4']])
+		self.assertEqual(default, [
+			{'id': 'r0'},
+			{'id': 'r1'},
+			{'id': 'r2'},
+			{'id': 'r3'},
+			{'id': 'r4'},
+		])
 		return
 
 

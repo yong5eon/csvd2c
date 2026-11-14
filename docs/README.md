@@ -36,15 +36,15 @@ flowchart LR
 - `open(path, mode="rb", header=None, offset=None, limit=None)`는 읽기 전용 `rb`, `r`, `rt`를 지원합니다. 텍스트 모드도 생성자의 인코딩·오류·개행 설정을 사용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다. `header`는 [헤더 검증](#헤더-검증)을, `offset`·`limit`은 [읽기 범위](#읽기-범위)를 참고하세요.
 - `close()`는 현재 스트림을 즉시 닫고 헤더와 읽기 상태·범위를 초기화합니다. 반복 호출해도 안전합니다. 닫힌 스트림에서 `next(csv)`를 호출하면 `RuntimeError`가 발생하고, 닫기 전 `rows()` generator도 사용할 수 없습니다.
 - `header()`는 레코드를 읽지 않고, `open()`에서 검증한 헤더의 복사본을 반환합니다. 헤더 검증을 하지 않았으면 `None`을 반환합니다.
-- `next(csv)`와 `row()`는 다음 레코드 하나를 list로 반환합니다. `rows()`는 남은 레코드를 list로 하나씩 제공하는 generator입니다. 세 방식은 같은 읽기 위치를 공유하며 열린 컨텍스트 안에서 사용해야 합니다. 헤더 Validator 없이 헤더가 있는 파일을 읽으면 첫 결과는 헤더 레코드입니다.
+- `next(csv)`·`row()`·`rows()`는 같은 읽기 위치를 공유하며 열린 컨텍스트 안에서 사용해야 합니다. 헤더 Validator를 주입한 상태에서는 헤더 이름을 키로 하는 `Mapping[str, str]`을 반환하고, 헤더 Validator가 없으면 `list[str]`를 반환합니다. 헤더 Validator 없이 헤더가 있는 파일을 읽으면 첫 결과는 헤더 레코드입니다.
 - `iter(csv)`는 같은 `CSV` 인스턴스를 반환합니다. `next(csv)`는 파일 끝이나 limit 도달 시 `StopIteration`을 발생시키며, `for record in csv`와 `rows()`는 정상 종료합니다. 같은 인스턴스를 다시 열면 새 읽기 상태에서 시작합니다.
 - 생성자의 `row`는 행 Validator, `column`은 컬럼 Validator 설정입니다. `row(row=..., column=...)`와 `rows(row=..., column=...)`로 해당 호출에만 설정을 교체할 수 있습니다. 생략하거나 `None`을 전달하면 생성자 설정을 사용하며, 생성자에도 없으면 검증하지 않습니다.
 - `column`이 dict이면 검증된 헤더에서 지정한 컬럼만 처리합니다. 헤더 Validator를 주입해야 하며, 지정한 이름이 없거나 중복되면 오류입니다. tuple이면 첫 컬럼부터 지정한 개수만 처리합니다.
-- 행 Validator를 먼저 실행하고 그 결과에 컬럼 Validator를 적용합니다. 컬럼 수 일치를 자동으로 강제하지 않으며, 구조 검사는 행 Pattern에서 정의합니다. 처리 대상 컬럼이 행에 없으면 오류입니다.
+- 행 Validator를 먼저 실행하고 그 결과에 컬럼 Validator를 적용합니다. 헤더 Validator를 주입한 상태에서 행 검증 후 컬럼 수가 헤더 길이와 다르면 `RowError`가 발생합니다. 구조 검사는 행 Pattern에서 정의하며, 처리 대상 컬럼이 행에 없으면 오류입니다.
 - `rows()`는 호출 시 검증 설정과 헤더 매핑을 선택합니다. 검증 오류는 해당 레코드를 소비한 뒤 전파하므로, 열린 파일에서 다음 `next(csv)` 또는 `row()` 호출로 다음 레코드를 읽을 수 있습니다. Validator가 `StopIteration`을 발생시키면 iterator 종료로 오인되지 않도록 `RuntimeError`로 처리합니다. 디코딩·파싱 오류 이후 재개는 보장하지 않습니다.
 - TSV는 `delimiter="\t"`로 읽습니다. 기본 구분자는 쉼표이고 `strict=True`로 CSV 구문을 검사합니다. `escapechar`는 기본값 `None`이며, backslash로 escape된 인용부호 같은 입력을 처리하려면 `escapechar="\\"`로 지정합니다. 값의 해석과 설정 오류는 Python 표준 `csv.reader`를 따릅니다.
 
-예를 들어 `input.tsv`의 첫 레코드가 헤더이고 다음 레코드가 `1<TAB>"Acme \"quoted\" name"`이면 다음 설정으로 데이터 행을 `['1', 'Acme "quoted" name']`으로 읽습니다.
+예를 들어 `input.tsv`의 첫 레코드가 헤더이고 다음 레코드가 `1<TAB>"Acme \"quoted\" name"`이면 다음 설정으로 데이터 행을 `{'id': '1', 'value': 'Acme "quoted" name'}`으로 읽습니다.
 
 ```python
 from csvd2c import CSV
@@ -307,7 +307,7 @@ assert validator(["고객명", "date"]) == ["name", "date"]
 | `csv.header()`로 첫 레코드를 헤더로 소비 | `CSV(header=HeaderValidator())` 또는 `open(path, header=HeaderValidator())` 주입 후 `csv.header()`로 조회 |
 | `header()` 반복 호출로 다음 레코드 소비 | 지원하지 않음. 데이터 레코드는 `row()`로 읽음 |
 | `cols=` | `column=` |
-| `row(header=...)`·`rows(header=...)`로 dict 반환 | list를 받아 `dict(zip(csv.header(), record))` 등으로 직접 변환 |
+| `row(header=...)`·`rows(header=...)`로 dict 반환 | `header=`에 Validator를 주입하면 `row()`·`rows()`가 `Mapping[str, str]`를 직접 반환 |
 
 ## 검증 위치와 오류 처리 계약
 

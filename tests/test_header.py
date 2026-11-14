@@ -88,8 +88,14 @@ class HeaderValidationTests(TestCase):
 		with csv.open(str(self.path)):
 			self.assertEqual(pattern.calls, [['name', 'note']])
 			self.assertEqual(csv.header(), ['name', 'note'])
-			self.assertEqual(csv.row(), [' a ', ' b '])
-			self.assertEqual(list(csv.rows()), [['c', 'd']])
+			self.assertEqual(csv.row(), {
+				'name': ' a ',
+				'note': ' b ',
+			})
+			self.assertEqual(list(csv.rows()), [{
+				'name': 'c',
+				'note': 'd',
+			}])
 		self.assertEqual(pattern.calls, [['name', 'note']])
 		return
 
@@ -116,7 +122,10 @@ class HeaderValidationTests(TestCase):
 		self.assertIsNone(csv.header())
 		with csv.open(str(self.path), header=Validator()):
 			self.assertEqual(csv.header(), ['name', 'note'])
-			self.assertEqual(csv.row(), [' a ', ' b '])
+			self.assertEqual(csv.row(), {
+				'name': ' a ',
+				'note': ' b ',
+			})
 		return
 
 	def test_failure_closes_file(self) -> None:
@@ -213,7 +222,10 @@ class HeaderValidationTests(TestCase):
 			first.append('changed')
 			first[0] = 'changed'
 			self.assertEqual(csv.header(), ['name', 'note'])
-			self.assertEqual(csv.row(), [' a ', ' b '])
+			self.assertEqual(csv.row(), {
+				'name': ' a ',
+				'note': ' b ',
+			})
 		return
 
 	def test_renamed_header_maps_named_columns(self) -> None:
@@ -222,28 +234,36 @@ class HeaderValidationTests(TestCase):
 			column={'person': ColumnValidator(Strip(), Upper())},
 		)
 		with csv.open(str(self.path)):
-			self.assertEqual(csv.row(), ['A', ' b '])
+			self.assertEqual(csv.row(), {
+				'person': 'A',
+				'note': ' b ',
+			})
 		with csv.open(str(self.path)):
 			with self.assertRaisesRegex(ValueError, 'exactly once'):
 				csv.row(column={'name': ColumnValidator(Strip())})
 		return
 
 	def test_named_column_duplicate_and_missing_names(self) -> None:
-		for names, column in (
-			({'note': 'name'}, 'name'),
-			({}, 'missing'),
-		):
-			with self.subTest(column=column):
-				csv = CSV(
-					header=Validator(Rename(names)),
-					column={column: ColumnValidator(Strip())},
-				)
-				with csv.open(str(self.path)):
-					with self.assertRaisesRegex(ValueError, 'exactly once'):
-						csv.row()
-					with self.assertRaisesRegex(ValueError, 'exactly once'):
-						csv.rows()
-					self.assertEqual(csv.row(column=()), [' a ', ' b '])
+		csv = CSV(
+			header=Validator(Rename({'note': 'name'})),
+			column={'name': ColumnValidator(Strip())},
+		)
+		with self.assertRaisesRegex(Error, 'unique'):
+			with csv.open(str(self.path)):
+				self.fail('Duplicate header names must fail before reading rows')
+		csv = CSV(
+			header=Validator(),
+			column={'missing': ColumnValidator(Strip())},
+		)
+		with csv.open(str(self.path)):
+			with self.assertRaisesRegex(ValueError, 'exactly once'):
+				csv.row()
+			with self.assertRaisesRegex(ValueError, 'exactly once'):
+				csv.rows()
+			self.assertEqual(csv.row(column=()), {
+				'name': ' a ',
+				'note': ' b ',
+			})
 		return
 
 	def test_named_column_without_header_is_rejected(self) -> None:
@@ -268,15 +288,24 @@ class HeaderValidationTests(TestCase):
 			column=(ColumnValidator(Strip()),),
 		)
 		with csv.open(str(self.path)):
-			self.assertEqual(csv.row(), ['a', ' b '])
+			self.assertEqual(csv.row(), {
+				'name': 'a',
+				'note': ' b ',
+			})
 			self.assertEqual(
 				list(csv.rows(column=(ColumnValidator(Upper()),))),
-				[['C', 'd']],
+				[{
+					'name': 'C',
+					'note': 'd',
+				}],
 			)
 		with csv.open(str(self.path), header=Validator()):
 			self.assertEqual(
 				csv.row(column={'note': ColumnValidator(Strip())}),
-				[' a ', 'b'],
+				{
+					'name': ' a ',
+					'note': 'b',
+				},
 			)
 		return
 
@@ -299,11 +328,13 @@ class HeaderValidationTests(TestCase):
 				csv.row(header=('first', 'second'))  # type: ignore[call-arg]
 			with self.assertRaises(TypeError):
 				csv.rows(header=('first', 'second'))  # type: ignore[call-arg]
-			record: List[str] = csv.row()
-			self.assertIsInstance(record, list)
-			self.assertEqual(record, [' a ', ' b '])
+			record: Dict[str, str] = dict(csv.row())
+			self.assertEqual(record, {
+				'name': ' a ',
+				'note': ' b ',
+			})
 			for item in csv.rows():
-				self.assertIsInstance(item, list)
+				self.assertIsInstance(item, dict)
 		return
 
 	def test_validator_rejects_non_pattern(self) -> None:

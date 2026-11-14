@@ -36,15 +36,15 @@ When a header Validator is injected, `open()` reads and validates the first reco
 - `open(path, mode="rb", header=None, offset=None, limit=None)` supports read-only `rb`, `r`, and `rt`. Text modes use the constructor's encoding, errors, and newline settings. Write, append, and update modes are rejected before opening the file. See [header validation](#header-validation) for `header` and [read range](#read-range) for `offset` and `limit`.
 - `close()` immediately closes the current stream and clears the header, reading state, and range. Repeated calls are safe. Calling `next(csv)` on a closed stream raises `RuntimeError`; a `rows()` generator from that stream cannot be reused.
 - `header()` reads no record and returns a copy of the header validated by `open()`, or `None` without header validation.
-- `next(csv)` and `row()` return the next record as a list. `rows()` is a generator of remaining records as lists. All three share the file position and must be used inside the open context. Without a header Validator, the first result of a file with a header is the header record.
+- `next(csv)`, `row()`, and `rows()` share the same file position and must be used inside the open context. With a header Validator, they return `Mapping[str, str]` records keyed by validated header names. Without a header Validator, they return `list[str]` records. Without a header Validator, the first result of a file with a header is the header record.
 - `iter(csv)` returns the same `CSV` instance. `next(csv)` raises `StopIteration` at EOF or the read limit; `for record in csv` and `rows()` end normally. Reopening the same instance starts a new read state.
 - Constructor `row` and `column` configure row and column Validators. `row(row=..., column=...)` and `rows(row=..., column=...)` override them only for that call. Omitted arguments or `None` use constructor settings; no settings means no validation.
 - Dictionary `column` validates only named columns of the validated header and requires a header Validator. Missing or duplicate selected names are errors. Tuple `column` validates only the specified prefix.
-- Row validation runs before column validation. Header/record column count equality is not enforced automatically; define structural rules in row Patterns. Missing selected record columns are errors.
+- Row validation runs before column validation. With a header Validator, csvd2c raises `RowError` when a validated row length differs from the validated header length. Define structural rules in row Patterns, and treat missing selected record columns as errors.
 - `rows()` selects validators and header mapping when called. A validation error propagates after consuming its record, so the next `next(csv)` or `row()` call inside the open context reads the following record. A Validator-raised `StopIteration` becomes `RuntimeError` rather than appearing as iterator exhaustion. Resuming safely after decoding or parsing errors is not guaranteed.
 - Use `delimiter="\t"` for TSV. The default delimiter is comma, with `strict=True` CSV parsing. `escapechar` defaults to `None`; set `escapechar="\\"` to read input such as quoted fields containing backslash-escaped quotes. Parsing and configuration errors follow Python's standard `csv.reader`.
 
-For example, if the first record in `input.tsv` is a header and the next record is `1<TAB>"Acme \"quoted\" name"`, this configuration reads the data row as `['1', 'Acme "quoted" name']`:
+For example, if the first record in `input.tsv` is a header and the next record is `1<TAB>"Acme \"quoted\" name"`, this configuration reads the data row as `{'id': '1', 'value': 'Acme "quoted" name'}`:
 
 ```python
 from csvd2c import CSV
@@ -307,7 +307,7 @@ With this Validator injected, `column={"name": ...}` applies to the `customer na
 | `csv.header()` consumed the first record as the header | Inject `CSV(header=HeaderValidator())` or `open(path, header=HeaderValidator())`, then read it with `csv.header()` |
 | Repeated `header()` calls consumed further records | Not supported. Read data records with `row()` |
 | `cols=` | `column=` |
-| `row(header=...)` or `rows(header=...)` returned dictionaries | Convert the list yourself, for example `dict(zip(csv.header(), record))` |
+| `row(header=...)` or `rows(header=...)` returned dictionaries | Inject `header=HeaderValidator(...)`; `row()` and `rows()` now return `Mapping[str, str]` directly |
 
 ## Validation positions and error contracts
 

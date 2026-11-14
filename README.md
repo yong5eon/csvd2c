@@ -66,8 +66,8 @@ with csv.open("input.csv"):
 
 ```text
 ['name', 'date']
-['Example', '2026-01-10']
-['Sample', '2026-02-23']
+{'name': 'Example', 'date': '2026-01-10'}
+{'name': 'Sample', 'date': '2026-02-23'}
 ```
 
 헤더 Validator를 주입했으므로 `open()`이 첫 레코드를 헤더로 읽고 `name,date` 순서인지 검증합니다. `header()`는 검증된 헤더를 반환하고 반복문은 나머지 레코드를 읽습니다. `next(csv)`로 한 건씩 읽을 수도 있습니다. 이름 기반 `column`에 지정한 `name`은 헤더에 정확히 한 번 있어야 합니다. 날짜는 별도 `Date` 규칙을 넣지 않았으므로 원문 문자열로 유지됩니다. TSV는 `CSV(delimiter="\t")`로 설정합니다.
@@ -77,7 +77,7 @@ with csv.open("input.csv"):
 - `header=`에 헤더 Validator를 주입하면 `open()`이 첫 레코드를 헤더로 읽어 검증합니다. 실패하면 `csvd2c.header.Error`가 발생하고 파일이 닫힙니다. 주입하지 않으면 `open()`은 레코드를 읽지 않습니다.
 - `header()`는 레코드를 읽지 않고 검증된 헤더의 복사본을 반환합니다. 헤더 검증을 하지 않았으면 `None`입니다.
 - `raw()`는 마지막 데이터 레코드의 검증 전 필드 목록을 복사해 반환합니다. 초기 상태·레코드를 얻지 못한 읽기·종료 후에는 `None`입니다. 자세한 갱신 규칙과 저장 예시는 [원문 레코드 조회](./docs/README.md#원문-레코드-조회)를 참고하세요.
-- `next(csv)`와 `row()`는 다음 레코드 하나를, `rows()`는 남은 레코드를 list로 순차 반환합니다. 세 방식은 읽기 위치와 생성자 Validator를 공유합니다. 헤더 Validator 없이 헤더가 있는 파일을 읽으면 첫 결과는 헤더 레코드입니다.
+- `next(csv)`·`row()`·`rows()`는 읽기 위치와 생성자 Validator를 공유합니다. 헤더 Validator를 주입한 상태에서는 헤더 이름을 키로 하는 `Mapping[str, str]` 레코드를 반환하고, 헤더 Validator가 없으면 기존처럼 `list[str]` 레코드를 반환합니다. 헤더 Validator 없이 헤더가 있는 파일을 읽으면 첫 결과는 헤더 레코드입니다.
 - `row` Validator를 먼저 실행하고 그 결과에 `column` Validator를 적용합니다. `column`이 dict이면 검증된 헤더의 이름 기준, tuple이면 앞쪽 컬럼부터 적용합니다.
 - `row()`·`rows()`의 `row=`·`column=`는 해당 호출의 설정을 교체합니다. `open()`의 `header=`는 그 파일에만 적용됩니다. 생략하거나 `None`을 전달하면 생성자 설정을 사용합니다.
 - `next(csv)`와 `row()`는 파일 끝에서 `StopIteration`을 발생시키며, `rows()`와 반복문은 정상 종료합니다.
@@ -92,16 +92,15 @@ with csv.open("input.csv"):
 
 `CSV`의 기본 설정은 `encoding="utf-8"`, `errors="strict"`, `newline=""`, `delimiter=","`, `strict=True`입니다. `open(path, mode="rb", header=None, offset=None, limit=None)`는 `rb`·`r`·`rt`만 지원합니다. 바이너리 모드에서는 `TextIOWrapper`로 디코딩하며, 텍스트 모드도 같은 인코딩·오류·개행 설정을 적용합니다. 쓰기·추가·갱신 모드는 파일을 열기 전에 거부합니다.
 
-`next(csv)`, `row()`와 `rows()`는 항상 list 레코드를 반환합니다. dict가 필요하면 검증된 헤더와 직접 연결합니다.
+헤더 Validator를 사용하면 `next(csv)`·`row()`·`rows()`는 `Mapping[str, str]`를 반환합니다. 헤더 Validator를 사용하지 않으면 세 API는 `list[str]`를 반환합니다.
 
 ```python
 from csvd2c import CSV
 from csvd2c.header import Validator as HeaderValidator
 
 with CSV(header=HeaderValidator()).open("input.csv") as csv:
-  header = csv.header() or []
   for record in csv.rows():
-    print(dict(zip(header, record)))
+    print(record["name"], record["date"])
 ```
 
 `column`의 이름이 검증된 헤더에 없거나 중복되면 오류이며, tuple 설정은 지정한 앞쪽 컬럼만 처리합니다. 생성자 설정을 사용하지 않으려면 호출별 `column={}` 또는 `column=()`를 명시합니다.

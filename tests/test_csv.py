@@ -5,6 +5,7 @@ from csv import (
 	field_size_limit,
 	reader as csv_reader,
 )
+from collections.abc import Generator as ABCGenerator
 from inspect import (
 	Parameter,
 	signature,
@@ -21,8 +22,12 @@ from typing import (
 	Generator,
 	Iterator,
 	List,
+	Mapping,
 	Optional,
 	Union,
+	get_args,
+	get_origin,
+	get_overloads,
 	get_type_hints,
 )
 from unittest import (
@@ -36,7 +41,10 @@ from csvd2c import (
 	MAX_FIELD_SIZE,
 	__all__ as package_exports,
 )
-from csvd2c.header import Validator as HeaderValidator
+from csvd2c.header import (
+	Error as HeaderError,
+	Validator as HeaderValidator,
+)
 from csvd2c.row import (
 	Error as RowError,
 	Pattern as RowPattern,
@@ -145,6 +153,30 @@ class CSVTests(TestCase):
 			CSV(field_size_limit=MAX_FIELD_SIZE)
 			setter.assert_called_once_with(MAX_FIELD_SIZE)
 		self.assertEqual(field_size_limit(), MAX_FIELD_SIZE)
+		return
+
+	def test_row_and_rows_type_overloads(self) -> None:
+		row_returns: set[object] = {
+			get_type_hints(overload)['return']
+			for overload in get_overloads(CSV.row)
+		}
+		self.assertEqual(row_returns, {
+			List[str],
+			Mapping[str, str],
+		})
+		rows_returns: set[object] = {
+			get_type_hints(overload)['return']
+			for overload in get_overloads(CSV.rows)
+		}
+		self.assertEqual(len(rows_returns), 2)
+		inner_types: set[object] = set()
+		for value in rows_returns:
+			self.assertIs(get_origin(value), ABCGenerator)
+			inner_types.add(get_args(value)[0])
+		self.assertEqual(inner_types, {
+			List[str],
+			Mapping[str, str],
+		})
 		return
 
 	def test_field_size_limit_none_preserves_global_setting(self) -> None:
@@ -326,8 +358,14 @@ class CSVTests(TestCase):
 			self.assertIs(opened, csv)
 			self.assertEqual(csv.header(), ['name', 'note'])
 			self.assertEqual(csv.header(), ['name', 'note'])
-			self.assertEqual(csv.row(), [' a ', ' b '])
-			self.assertEqual(csv.row(), ['c', 'd'])
+			self.assertEqual(csv.row(), {
+				'name': ' a ',
+				'note': ' b ',
+			})
+			self.assertEqual(csv.row(), {
+				'name': 'c',
+				'note': 'd',
+			})
 			self.assertEqual(csv.header(), ['name', 'note'])
 		return
 
@@ -344,7 +382,10 @@ class CSVTests(TestCase):
 					header=HeaderValidator(),
 				)
 				with csv.open(str(self.path), mode):
-					self.assertEqual(csv.row(), ['홍길동', 'a\r\nb'])
+					self.assertEqual(csv.row(), {
+						'name': '홍길동',
+						'note': 'a\r\nb',
+					})
 					csv.close()
 				with self.assertRaises(RuntimeError):
 					csv.row()
@@ -392,7 +433,27 @@ class CSVTests(TestCase):
 				self.assertEqual(csv.escapechar, '\\')
 				with csv.open(str(self.path), mode):
 					self.assertEqual(csv.header(), expected[0])
-					self.assertEqual(list(csv.rows()), expected[1:])
+					self.assertEqual(
+						list(csv.rows()),
+						[
+							{
+								'id': '1',
+								'value': 'Acme "quoted" name',
+							},
+							{
+								'id': '2',
+								'value': 'left\tright',
+							},
+							{
+								'id': '3',
+								'value': 'back\\slash',
+							},
+							{
+								'id': '4',
+								'value': 'line one\nline two',
+							},
+						],
+					)
 		return
 
 	def test_escapechar_preserves_row_and_column_validation_order(self) -> None:
@@ -414,7 +475,10 @@ class CSVTests(TestCase):
 		self.assertIsNone(csv.escapechar)
 		with csv.open(str(self.path)):
 			self.assertEqual(csv.header(), ['id', 'name'])
-			self.assertEqual(csv.row(), ['1', 'Acme "quoted" name'])
+			self.assertEqual(csv.row(), {
+				'id': '1',
+				'name': 'Acme "quoted" name',
+			})
 		return
 
 	def test_invalid_escapechar_propagates_reader_error(self) -> None:
@@ -451,8 +515,14 @@ class CSVTests(TestCase):
 			self.assertEqual(
 				list(csv.rows()),
 				[
-					['b', ' a '],
-					['d', 'c'],
+					{
+						'name': 'b',
+						'note': ' a ',
+					},
+					{
+						'name': 'd',
+						'note': 'c',
+					},
 				],
 			)
 		return
@@ -467,14 +537,23 @@ class CSVTests(TestCase):
 			assert header is not None
 			header[0] = 'changed'
 			self.assertEqual(csv.header(), ['name', 'note'])
-			self.assertEqual(csv.row(), ['a', ' b '])
+			self.assertEqual(csv.row(), {
+				'name': 'a',
+				'note': ' b ',
+			})
 		return
 
 	def test_rows_and_row_share_position(self) -> None:
 		csv = CSV(header=HeaderValidator())
 		with csv.open(str(self.path)):
-			self.assertEqual(csv.row(), [' a ', ' b '])
-			self.assertEqual(list(csv.rows()), [['c', 'd']])
+			self.assertEqual(csv.row(), {
+				'name': ' a ',
+				'note': ' b ',
+			})
+			self.assertEqual(list(csv.rows()), [{
+				'name': 'c',
+				'note': 'd',
+			}])
 			self.assertEqual(list(csv.rows()), [])
 			with self.assertRaises(StopIteration):
 				csv.row()
@@ -488,8 +567,14 @@ class CSVTests(TestCase):
 		)
 		with csv.open(str(self.path)):
 			self.assertIs(iter(csv), csv)
-			self.assertEqual(next(csv), [' b ', ' a '])
-			self.assertEqual(csv.row(), ['d', 'c'])
+			self.assertEqual(next(csv), {
+				'name': ' b ',
+				'note': ' a ',
+			})
+			self.assertEqual(csv.row(), {
+				'name': 'd',
+				'note': 'c',
+			})
 			self.assertEqual(list(csv.rows()), [])
 			with self.assertRaises(StopIteration):
 				next(csv)
@@ -525,23 +610,29 @@ class CSVTests(TestCase):
 				csv.row()
 			self.assertEqual(csv.row(column=()), ['name', 'note'])
 		with csv.open(str(self.path), header=HeaderValidator()):
-			self.assertEqual(csv.row(), ['a', ' b '])
+			self.assertEqual(csv.row(), {
+				'name': 'a',
+				'note': ' b ',
+			})
 		return
 
 	def test_missing_and_duplicate_header_names(self) -> None:
-		for header in (
-			b'other,note\n',
-			b'name,name\n',
-		):
-			with self.subTest(header=header):
-				self.path.write_bytes(header + b'a,b\n')
-				csv = CSV(
-					header=HeaderValidator(),
-					column={'name': ColumnValidator(Strip())},
-				)
-				with csv.open(str(self.path)):
-					with self.assertRaisesRegex(ValueError, 'exactly once'):
-						csv.row()
+		self.path.write_bytes(b'other,note\na,b\n')
+		csv = CSV(
+			header=HeaderValidator(),
+			column={'name': ColumnValidator(Strip())},
+		)
+		with csv.open(str(self.path)):
+			with self.assertRaisesRegex(ValueError, 'exactly once'):
+				csv.row()
+		self.path.write_bytes(b'name,name\na,b\n')
+		csv = CSV(
+			header=HeaderValidator(),
+			column={'name': ColumnValidator(Strip())},
+		)
+		with self.assertRaisesRegex(HeaderError, 'unique'):
+			with csv.open(str(self.path)):
+				self.fail('Duplicate header names must fail during open')
 		return
 
 	def test_tuple_only_validates_prefix(self) -> None:
@@ -550,7 +641,10 @@ class CSVTests(TestCase):
 			column=(ColumnValidator(Strip()),),
 		)
 		with csv.open(str(self.path)):
-			self.assertEqual(csv.row(), ['a', ' b '])
+			self.assertEqual(csv.row(), {
+				'name': 'a',
+				'note': ' b ',
+			})
 		return
 
 	def test_row_runs_before_columns(self) -> None:
@@ -560,7 +654,10 @@ class CSVTests(TestCase):
 			column=(ColumnValidator(Strip(), Upper()),),
 		)
 		with csv.open(str(self.path)):
-			self.assertEqual(csv.row(), ['B', ' a '])
+			self.assertEqual(csv.row(), {
+				'name': 'B',
+				'note': ' a ',
+			})
 		return
 
 	def test_row_overrides_do_not_change_defaults(self) -> None:
@@ -569,8 +666,14 @@ class CSVTests(TestCase):
 			row=RowValidator(Reverse()),
 		)
 		with csv.open(str(self.path)):
-			self.assertEqual(csv.row(row=RowValidator()), [' a ', ' b '])
-			self.assertEqual(csv.row(), ['d', 'c'])
+			self.assertEqual(csv.row(row=RowValidator()), {
+				'name': ' a ',
+				'note': ' b ',
+			})
+			self.assertEqual(csv.row(), {
+				'name': 'd',
+				'note': 'c',
+			})
 		return
 
 	def test_column_overrides_and_none_use_defaults(self) -> None:
@@ -581,9 +684,15 @@ class CSVTests(TestCase):
 		with csv.open(str(self.path)):
 			self.assertEqual(
 				csv.row(column=(ColumnValidator(Strip()),)),
-				['a', ' b '],
+				{
+					'name': 'a',
+					'note': ' b ',
+				},
 			)
-			self.assertEqual(csv.row(column=None), ['C', 'd'])
+			self.assertEqual(csv.row(column=None), {
+				'name': 'C',
+				'note': 'd',
+			})
 		return
 
 	def test_rows_overrides_and_constructor_unchanged(self) -> None:
@@ -594,9 +703,15 @@ class CSVTests(TestCase):
 		)
 		with csv.open(str(self.path)):
 			rows = csv.rows(row=RowValidator(), column=(ColumnValidator(Strip()),))
-			self.assertEqual(next(rows), ['a', ' b '])
+			self.assertEqual(next(rows), {
+				'name': 'a',
+				'note': ' b ',
+			})
 			rows.close()
-			self.assertEqual(csv.row(), ['D', 'c'])
+			self.assertEqual(csv.row(), {
+				'name': 'D',
+				'note': 'c',
+			})
 		return
 
 	def test_missing_column_after_row_validation(self) -> None:
@@ -614,7 +729,9 @@ class CSVTests(TestCase):
 		self.path.write_bytes(b'a,b\nx,y,z\n')
 		csv = CSV(header=HeaderValidator())
 		with csv.open(str(self.path)):
-			self.assertEqual(csv.row(), ['x', 'y', 'z'])
+			with self.assertRaisesRegex(RowError, 'header has 2') as context:
+				csv.row()
+			self.assertEqual(context.exception.value, ['x', 'y', 'z'])
 		return
 
 	def test_validator_errors_propagate(self) -> None:
@@ -654,7 +771,10 @@ class CSVTests(TestCase):
 		)
 		with csv.open(str(self.path)):
 			self.assertEqual(csv.header(), ['name', 'note'])
-			self.assertEqual(csv.row(), ['Kim', 'a\tb\r\nc'])
+			self.assertEqual(csv.row(), {
+				'name': 'Kim',
+				'note': 'a\tb\r\nc',
+			})
 		return
 
 	def test_cp949(self) -> None:
@@ -665,7 +785,9 @@ class CSVTests(TestCase):
 		)
 		with csv.open(str(self.path)):
 			self.assertEqual(csv.header(), ['이름'])
-			self.assertEqual(csv.row(), ['홍길동'])
+			self.assertEqual(csv.row(), {
+				'이름': '홍길동',
+			})
 		return
 
 	def test_strict_decode_and_surrogateescape(self) -> None:
@@ -676,9 +798,9 @@ class CSVTests(TestCase):
 				csv.row()
 		csv = CSV(errors='surrogateescape')
 		with csv.open(str(self.path), header=HeaderValidator()):
-			record: List[str] = csv.row()
+			record: dict[str, str] = dict(csv.row())
 			self.assertEqual(
-				record[0].encode('utf-8', errors='surrogateescape'),
+				record['name'].encode('utf-8', errors='surrogateescape'),
 				b'x\xff',
 			)
 		return
@@ -782,7 +904,10 @@ class CSVTests(TestCase):
 		with csv.open(str(self.path)):
 			rows = csv.rows()
 			self.assertEqual(csv.header(), ['name', 'note'])
-			self.assertEqual(next(rows), [' a ', ' b '])
+			self.assertEqual(next(rows), {
+				'name': ' a ',
+				'note': ' b ',
+			})
 		return
 
 	def test_invalid_configuration(self) -> None:
